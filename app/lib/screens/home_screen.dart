@@ -335,36 +335,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildHomeFeed() {
-    if (_isLoadingTrending) {
-      return const Center(child: CircularProgressIndicator(color: Color(0xFFE50914)));
-    }
-
-    if (_trending.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.movie_filter_outlined, color: Colors.white24, size: 64),
-            const SizedBox(height: 16),
-            const Text(
-              "No trending titles found",
-              style: TextStyle(color: Colors.white70, fontSize: 16),
-            ),
-            const SizedBox(height: 12),
-            ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFE50914),
-                foregroundColor: Colors.white,
-              ),
-              onPressed: _loadTrending,
-              icon: const Icon(Icons.refresh),
-              label: const Text("Retry"),
-            ),
-          ],
-        ),
-      );
-    }
-
     return ListView(
       padding: const EdgeInsets.all(12),
       children: [
@@ -379,7 +349,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           const SizedBox(height: 8),
           SizedBox(
-            height: 130,
+            height: 150,
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
               itemCount: _continueWatching.length,
@@ -409,7 +379,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           const SizedBox(height: 8),
           SizedBox(
-            height: 160,
+            height: 185,
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
               itemCount: _myList.length,
@@ -429,8 +399,8 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
 
         // Trending section
-        Row(
-          children: const [
+        const Row(
+          children: [
             Icon(Icons.local_fire_department, color: Colors.amber, size: 20),
             SizedBox(width: 6),
             Text(
@@ -440,21 +410,84 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
         const SizedBox(height: 12),
-        GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 3,
-            childAspectRatio: 0.65,
-            crossAxisSpacing: 10,
-            mainAxisSpacing: 10,
+        if (_isLoadingTrending)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 48),
+            child: Center(child: CircularProgressIndicator(color: Color(0xFFE50914))),
+          )
+        else if (_trending.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 32),
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.movie_filter_outlined, color: Colors.white24, size: 48),
+                  const SizedBox(height: 12),
+                  const Text(
+                    "No trending titles found",
+                    style: TextStyle(color: Colors.white70, fontSize: 14),
+                  ),
+                  const SizedBox(height: 12),
+                  ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFE50914),
+                      foregroundColor: Colors.white,
+                    ),
+                    onPressed: _loadTrending,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text("Retry"),
+                  ),
+                ],
+              ),
+            ),
+          )
+        else
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 3,
+              childAspectRatio: 0.65,
+              crossAxisSpacing: 10,
+              mainAxisSpacing: 10,
+            ),
+            itemCount: _trending.length,
+            itemBuilder: (ctx, i) {
+              final item = _trending[i];
+              return _MediaCard(item: item);
+            },
           ),
-          itemCount: _trending.length,
-          itemBuilder: (ctx, i) {
-            final item = _trending[i];
-            return _MediaCard(item: item);
-          },
+
+        // Home footer Credits badge
+        const SizedBox(height: 24),
+        Center(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1A0000),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: const Color(0xFFE50914)),
+            ),
+            child: const Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.code, color: Color(0xFFE50914), size: 20),
+                SizedBox(height: 4),
+                Text(
+                  'Made by Hackedghost64',
+                  style: TextStyle(
+                    color: Color(0xFFE50914),
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 1.0,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
+        const SizedBox(height: 16),
       ],
     );
   }

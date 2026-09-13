@@ -25,7 +25,7 @@ class NetflixPlayerScreen extends StatefulWidget {
     super.key,
     required this.subjectId,
     required this.title,
-    required this.poster,
+    this.poster,
     required this.season,
     required this.episode,
     this.episodeTitle,
@@ -68,6 +68,10 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
   // ── Auto-save timer ───────────────────────────────────────────────────────
   Timer? _saveTimer;
   bool _saveTimerStarted = false;
+
+  // ── Slider drag state ─────────────────────────────────────────────────────
+  double? _dragValue;
+
 
   // ── Constants ─────────────────────────────────────────────────────────────
   static const _accentRed = Color(0xFFE50914);
@@ -116,7 +120,7 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
   // Player initialisation
   // ─────────────────────────────────────────────────────────────────────────
 
-  Future<void> _initPlayer() async {
+  Future<void> _initPlayer({Duration? seekTo}) async {
     setState(() {
       _isInitializing = true;
       _hasError = false;
@@ -143,8 +147,20 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
       ctrl.addListener(_onVideoEvent);
 
       await ctrl.initialize();
+
+      // IMPORTANT 4 — bail out if widget was disposed during init
+      if (!mounted) {
+        ctrl.dispose();
+        return;
+      }
+
       await ctrl.setPlaybackSpeed(_playbackSpeed);
       await ctrl.play();
+
+      // IMPORTANT 3 — restore position after resolution switch
+      if (seekTo != null && seekTo > Duration.zero) {
+        await ctrl.seekTo(seekTo);
+      }
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -248,12 +264,6 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
     ctrl.seekTo(clamped);
   }
 
-  void _seekTo(double fraction) {
-    final ctrl = _controller;
-    if (ctrl == null) return;
-    final ms = (ctrl.value.duration.inMilliseconds * fraction).toInt();
-    ctrl.seekTo(Duration(milliseconds: ms));
-  }
 
   void _setSpeed(double speed) {
     _playbackSpeed = speed;
@@ -272,8 +282,9 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
   // ─────────────────────────────────────────────────────────────────────────
 
   void _doubleTapSeek({required bool forward}) {
-    _onUserInteraction();
+    // Do NOT call _onUserInteraction() — keep controls hidden during seek
     _seekRelative(forward ? _seekAmount : -_seekAmount);
+
 
     _rippleTimer?.cancel();
     setState(() {
@@ -429,8 +440,9 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
       ),
     ).then((selected) {
       if (selected != null && selected.url != _currentStream.url) {
+        final savedPos = _controller?.value.position;
         setState(() => _currentStream = selected);
-        _initPlayer();
+        _initPlayer(seekTo: savedPos);
       }
     });
   }
@@ -465,33 +477,39 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: SafeArea(
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            // ── Video ────────────────────────────────────────────────────
-            _buildVideoSurface(),
+    // IMPORTANT 5 — save progress on Android hardware back / swipe-back
+    return PopScope(
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) _saveProgress();
+      },
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        body: SafeArea(
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              // ── Video ────────────────────────────────────────────────────
+              _buildVideoSurface(),
 
-            // ── Double-tap zones ─────────────────────────────────────────
-            _buildDoubleTapZones(),
+              // ── Double-tap zones ─────────────────────────────────────────
+              _buildDoubleTapZones(),
 
-            // ── Ripple icons ─────────────────────────────────────────────
-            _buildRippleOverlays(),
+              // ── Ripple icons ─────────────────────────────────────────────
+              _buildRippleOverlays(),
 
-            // ── Buffering indicator ──────────────────────────────────────
-            if (_isBuffering && !_isInitializing)
-              const Center(
-                child: CircularProgressIndicator(color: _accentRed),
-              ),
+              // ── Buffering indicator ──────────────────────────────────────
+              if (_isBuffering && !_isInitializing)
+                const Center(
+                  child: CircularProgressIndicator(color: _accentRed),
+                ),
 
-            // ── Error view ───────────────────────────────────────────────
-            if (_hasError) _buildErrorView(),
+              // ── Error view ───────────────────────────────────────────────
+              if (_hasError) _buildErrorView(),
 
-            // ── Overlay controls ─────────────────────────────────────────
-            if (!_hasError) _buildOverlay(),
-          ],
+              // ── Overlay controls ─────────────────────────────────────────
+              if (!_hasError) _buildOverlay(),
+            ],
+          ),
         ),
       ),
     );
@@ -522,7 +540,10 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
   // ── Double-tap zones ───────────────────────────────────────────────────
 
   Widget _buildDoubleTapZones() {
+    // CRITICAL 1 — screen lock must block seek gestures
+    if (_isLocked) return const SizedBox.shrink();
     return Row(
+
       children: [
         // Left third — rewind
         Expanded(
@@ -557,38 +578,41 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
   // ── Ripple overlays ────────────────────────────────────────────────────
 
   Widget _buildRippleOverlays() {
-    return Row(
-      children: [
-        // Left ripple
-        Expanded(
-          flex: 1,
-          child: AnimatedOpacity(
-            opacity: _showRewindRipple ? 1.0 : 0.0,
-            duration: const Duration(milliseconds: 200),
-            child: Container(
-              color: Colors.white10,
-              child: const Center(
-                child: Icon(Icons.replay_10, color: Colors.white, size: 56),
+    // IMPORTANT 2 — ripple must not absorb touch events during animation
+    return IgnorePointer(
+      child: Row(
+        children: [
+          // Left ripple
+          Expanded(
+            flex: 1,
+            child: AnimatedOpacity(
+              opacity: _showRewindRipple ? 1.0 : 0.0,
+              duration: const Duration(milliseconds: 200),
+              child: Container(
+                color: Colors.white10,
+                child: const Center(
+                  child: Icon(Icons.replay_10, color: Colors.white, size: 56),
+                ),
               ),
             ),
           ),
-        ),
-        const Spacer(),
-        // Right ripple
-        Expanded(
-          flex: 1,
-          child: AnimatedOpacity(
-            opacity: _showForwardRipple ? 1.0 : 0.0,
-            duration: const Duration(milliseconds: 200),
-            child: Container(
-              color: Colors.white10,
-              child: const Center(
-                child: Icon(Icons.forward_10, color: Colors.white, size: 56),
+          const Spacer(),
+          // Right ripple
+          Expanded(
+            flex: 1,
+            child: AnimatedOpacity(
+              opacity: _showForwardRipple ? 1.0 : 0.0,
+              duration: const Duration(milliseconds: 200),
+              child: Container(
+                color: Colors.white10,
+                child: const Center(
+                  child: Icon(Icons.forward_10, color: Colors.white, size: 56),
+                ),
               ),
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -633,16 +657,21 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
   Widget _buildOverlay() {
     if (_isLocked) return _buildLockedOverlay();
     if (!_showControls) return const SizedBox.shrink();
-    return Container(
-      color: _overlayBg,
-      child: Column(
-        children: [
-          _buildTopBar(),
-          const Spacer(),
-          _buildCenterRow(),
-          const Spacer(),
-          _buildBottomBar(),
-        ],
+    // CRITICAL 2 — tap on empty overlay area dismisses controls
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: _toggleControls,
+      child: Container(
+        color: _overlayBg,
+        child: Column(
+          children: [
+            _buildTopBar(),
+            const Spacer(),
+            _buildCenterRow(),
+            const Spacer(),
+            _buildBottomBar(),
+          ],
+        ),
       ),
     );
   }
@@ -799,7 +828,7 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Progress slider
+          // Progress slider — IMPORTANT 1: buffer drags, seek only on release
           SliderTheme(
             data: SliderTheme.of(context).copyWith(
               activeTrackColor: _accentRed,
@@ -810,10 +839,19 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
               trackHeight: 3,
             ),
             child: Slider(
-              value: fraction.clamp(0.0, 1.0),
-              onChanged: (val) {
+              value: (_dragValue ?? fraction).clamp(0.0, 1.0),
+              onChangeStart: (_) {
                 _onUserInteraction();
-                _seekTo(val);
+                setState(() => _dragValue = fraction.clamp(0.0, 1.0));
+              },
+              onChanged: (val) {
+                setState(() => _dragValue = val);
+              },
+              onChangeEnd: (val) {
+                setState(() => _dragValue = null);
+                _controller?.seekTo(
+                  Duration(milliseconds: (val * _duration.inMilliseconds).round()),
+                );
               },
             ),
           ),

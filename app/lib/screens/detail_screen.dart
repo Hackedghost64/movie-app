@@ -78,6 +78,7 @@ class _DetailScreenState extends State<DetailScreen> {
         return _StreamSelectorSheet(
           subjectId: widget.item.id,
           title: episodeTitle != null ? "${widget.item.title} - $episodeTitle" : widget.item.title,
+          poster: widget.item.poster,
           season: season,
           episode: episode,
           isDownloadMode: false,
@@ -330,6 +331,7 @@ class _DetailScreenState extends State<DetailScreen> {
 class _StreamSelectorSheet extends StatefulWidget {
   final String subjectId;
   final String title;
+  final String? poster;
   final int season;
   final int episode;
   final bool isDownloadMode;
@@ -337,6 +339,7 @@ class _StreamSelectorSheet extends StatefulWidget {
   const _StreamSelectorSheet({
     required this.subjectId,
     required this.title,
+    this.poster,
     required this.season,
     required this.episode,
     required this.isDownloadMode,
@@ -465,7 +468,7 @@ class _StreamSelectorSheetState extends State<_StreamSelectorSheet> {
                           builder: (_) => NetflixPlayerScreen(
                             subjectId: widget.subjectId,
                             title: widget.title,
-                            poster: null,
+                            poster: widget.poster,
                             season: widget.season,
                             episode: widget.episode,
                             stream: s,

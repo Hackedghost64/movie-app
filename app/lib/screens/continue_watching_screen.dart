@@ -22,6 +22,17 @@ class _ContinueWatchingScreenState extends State<ContinueWatchingScreen> {
   void initState() {
     super.initState();
     _loadItems();
+    StorageService.instance.addListener(_onStorageChanged);
+  }
+
+  void _onStorageChanged() {
+    if (mounted) _loadItems();
+  }
+
+  @override
+  void dispose() {
+    StorageService.instance.removeListener(_onStorageChanged);
+    super.dispose();
   }
 
   void _loadItems() {
@@ -31,16 +42,14 @@ class _ContinueWatchingScreenState extends State<ContinueWatchingScreen> {
   }
 
   Future<void> _refresh() async {
-    setState(() {
-      _items = StorageService.instance.getAllWatchProgress();
-    });
+    _loadItems();
   }
 
-  Future<void> _removeItem(String id) async {
-    await StorageService.instance.removeWatchProgress(id);
+  void _removeItem(String id) {
     setState(() {
-      _items = StorageService.instance.getAllWatchProgress();
+      _items.removeWhere((e) => e.subjectId == id);
     });
+    StorageService.instance.removeWatchProgress(id); // no await
   }
 
   Future<void> _clearAll() async {
@@ -66,11 +75,14 @@ class _ContinueWatchingScreenState extends State<ContinueWatchingScreen> {
       ),
     );
 
+    if (!mounted) return;
+
     if (confirmed == true) {
       final ids = _items.map((e) => e.subjectId).toList();
       for (final id in ids) {
         await StorageService.instance.removeWatchProgress(id);
       }
+      if (!mounted) return;
       setState(() {
         _items = StorageService.instance.getAllWatchProgress();
       });

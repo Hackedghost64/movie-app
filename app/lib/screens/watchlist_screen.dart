@@ -22,6 +22,17 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
   void initState() {
     super.initState();
     _loadItems();
+    StorageService.instance.addListener(_onStorageChanged);
+  }
+
+  void _onStorageChanged() {
+    if (mounted) _loadItems();
+  }
+
+  @override
+  void dispose() {
+    StorageService.instance.removeListener(_onStorageChanged);
+    super.dispose();
   }
 
   void _loadItems() {
@@ -31,16 +42,14 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
   }
 
   Future<void> _refresh() async {
-    setState(() {
-      _items = StorageService.instance.getWatchlist();
-    });
+    _loadItems();
   }
 
-  Future<void> _removeItem(String id) async {
-    await StorageService.instance.removeWatchlist(id);
+  void _removeItem(String id) {
     setState(() {
-      _items = StorageService.instance.getWatchlist();
+      _items.removeWhere((e) => e.id == id);
     });
+    StorageService.instance.removeWatchlist(id); // no await
   }
 
   void _openDetail(WatchlistItem item) {

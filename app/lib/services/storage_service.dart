@@ -27,10 +27,11 @@ class StorageService extends ChangeNotifier {
     if (progressJson != null && progressJson.isNotEmpty) {
       try {
         final decoded = jsonDecode(progressJson);
-        if (decoded is Map<String, dynamic>) {
+        if (decoded is Map) {
           decoded.forEach((key, value) {
-            if (value is Map<String, dynamic>) {
-              _watchProgress[key] = WatchProgress.fromJson(value);
+            if (value is Map) {
+              _watchProgress[key.toString()] =
+                  WatchProgress.fromJson(Map<String, dynamic>.from(value));
             }
           });
         }
@@ -43,10 +44,11 @@ class StorageService extends ChangeNotifier {
     if (watchlistJson != null && watchlistJson.isNotEmpty) {
       try {
         final decoded = jsonDecode(watchlistJson);
-        if (decoded is Map<String, dynamic>) {
+        if (decoded is Map) {
           decoded.forEach((key, value) {
-            if (value is Map<String, dynamic>) {
-              _watchlist[key] = WatchlistItem.fromJson(value);
+            if (value is Map) {
+              _watchlist[key.toString()] =
+                  WatchlistItem.fromJson(Map<String, dynamic>.from(value));
             }
           });
         }

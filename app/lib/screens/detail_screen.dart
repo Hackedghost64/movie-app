@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/media_models.dart';
 import '../services/moviebox_api.dart';
 import '../services/download_service.dart';
+import '../services/storage_service.dart';
 import 'netflix_player_screen.dart';
 
 class DetailScreen extends StatefulWidget {
@@ -20,10 +21,12 @@ class _DetailScreenState extends State<DetailScreen> {
   int _selectedSeason = 1;
   List<EpisodeItem> _episodes = [];
   bool _isLoadingEpisodes = false;
+  bool _inWatchlist = false;
 
   @override
   void initState() {
     super.initState();
+    _inWatchlist = StorageService.instance.isInWatchlist(widget.item.id);
     _loadData();
   }
 
@@ -199,7 +202,7 @@ class _DetailScreenState extends State<DetailScreen> {
                         const SizedBox(height: 16),
 
                         // Action buttons for movies
-                        if (!isSeries)
+                        if (!isSeries) ...[
                           Row(
                             children: [
                               Expanded(
@@ -227,6 +230,27 @@ class _DetailScreenState extends State<DetailScreen> {
                               ),
                             ],
                           ),
+                          const SizedBox(height: 12),
+                        ],
+
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: Colors.white,
+                              side: const BorderSide(color: Colors.white54),
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                            ),
+                            onPressed: () async {
+                              await StorageService.instance.toggleWatchlist(widget.item);
+                              if (mounted) {
+                                setState(() => _inWatchlist = !_inWatchlist);
+                              }
+                            },
+                            icon: Icon(_inWatchlist ? Icons.check : Icons.add),
+                            label: Text(_inWatchlist ? "✓ In My List" : "+ My List"),
+                          ),
+                        ),
 
                         const SizedBox(height: 16),
                         // Overview

@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
 import '../models/media_models.dart';
+import '../models/storage_models.dart';
 import '../services/moviebox_api.dart';
+import '../services/storage_service.dart';
+import 'continue_watching_screen.dart';
 import 'detail_screen.dart';
 import 'downloads_screen.dart';
+import 'watchlist_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -18,10 +22,30 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isLoadingTrending = true;
   bool _isSearching = false;
 
+  List<WatchProgress> _continueWatching = [];
+  List<WatchlistItem> _myList = [];
+
   @override
   void initState() {
     super.initState();
     _loadTrending();
+    StorageService.instance.addListener(_onStorageChanged);
+    _onStorageChanged();
+  }
+
+  @override
+  void dispose() {
+    StorageService.instance.removeListener(_onStorageChanged);
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _onStorageChanged() {
+    if (!mounted) return;
+    setState(() {
+      _continueWatching = StorageService.instance.getAllWatchProgress();
+      _myList = StorageService.instance.getWatchlist();
+    });
   }
 
   Future<void> _loadTrending() async {
@@ -90,58 +114,98 @@ class _HomeScreenState extends State<HomeScreen> {
                   Text("Connection Mode", style: TextStyle(color: Colors.white, fontSize: 18)),
                 ],
               ),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    "Choose how this app communicates with MovieBox:",
-                    style: TextStyle(color: Colors.white70, fontSize: 13),
-                  ),
-                  const SizedBox(height: 12),
-                  RadioListTile<bool>(
-                    value: false,
-                    groupValue: gateway,
-                    activeColor: Colors.amber,
-                    title: const Text("Direct Mode (Standalone)", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
-                    subtitle: const Text("Connects directly using embedded signatures. No computer or server needed.", style: TextStyle(color: Colors.white54, fontSize: 12)),
-                    onChanged: (v) => setDialogState(() => gateway = v!),
-                  ),
-                  RadioListTile<bool>(
-                    value: true,
-                    groupValue: gateway,
-                    activeColor: Colors.amber,
-                    title: const Text("Gateway Mode (Custom Server)", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
-                    subtitle: const Text("Routes calls through your local or remote MBX wrapper server.", style: TextStyle(color: Colors.white54, fontSize: 12)),
-                    onChanged: (v) => setDialogState(() => gateway = v!),
-                  ),
-                  if (gateway) ...[
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: urlController,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: const InputDecoration(
-                        labelText: "Gateway URL",
-                        labelStyle: TextStyle(color: Colors.amber),
-                        hintText: "http://10.0.2.2:8399",
-                        hintStyle: TextStyle(color: Colors.white24),
-                        border: OutlineInputBorder(),
-                        isDense: true,
-                      ),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      "Choose how this app communicates with MovieBox:",
+                      style: TextStyle(color: Colors.white70, fontSize: 13),
                     ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: keyController,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: const InputDecoration(
-                        labelText: "API Key (optional)",
-                        labelStyle: TextStyle(color: Colors.amber),
-                        border: OutlineInputBorder(),
-                        isDense: true,
+                    const SizedBox(height: 12),
+                    RadioListTile<bool>(
+                      value: false,
+                      groupValue: gateway,
+                      activeColor: Colors.amber,
+                      title: const Text("Direct Mode (Standalone)", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+                      subtitle: const Text("Connects directly using embedded signatures. No computer or server needed.", style: TextStyle(color: Colors.white54, fontSize: 12)),
+                      onChanged: (v) => setDialogState(() => gateway = v!),
+                    ),
+                    RadioListTile<bool>(
+                      value: true,
+                      groupValue: gateway,
+                      activeColor: Colors.amber,
+                      title: const Text("Gateway Mode (Custom Server)", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
+                      subtitle: const Text("Routes calls through your local or remote MBX wrapper server.", style: TextStyle(color: Colors.white54, fontSize: 12)),
+                      onChanged: (v) => setDialogState(() => gateway = v!),
+                    ),
+                    if (gateway) ...[
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: urlController,
+                        style: const TextStyle(color: Colors.white),
+                        decoration: const InputDecoration(
+                          labelText: "Gateway URL",
+                          labelStyle: TextStyle(color: Colors.amber),
+                          hintText: "http://10.0.2.2:8399",
+                          hintStyle: TextStyle(color: Colors.white24),
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: keyController,
+                        style: const TextStyle(color: Colors.white),
+                        decoration: const InputDecoration(
+                          labelText: "API Key (optional)",
+                          labelStyle: TextStyle(color: Colors.amber),
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                      ),
+                    ],
+                    // Credits section
+                    Container(
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      child: Column(
+                        children: [
+                          const Divider(color: Colors.white24),
+                          const SizedBox(height: 12),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF1A0000),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: const Color(0xFFE50914), width: 1),
+                            ),
+                            child: const Column(
+                              children: [
+                                Icon(Icons.code, color: Color(0xFFE50914), size: 28),
+                                SizedBox(height: 6),
+                                Text(
+                                  'Made by Hackedghost64',
+                                  style: TextStyle(
+                                    color: Color(0xFFE50914),
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                    letterSpacing: 1.2,
+                                  ),
+                                ),
+                                SizedBox(height: 4),
+                                Text(
+                                  'MBX Stream v1.0',
+                                  style: TextStyle(color: Colors.white54, fontSize: 12),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],
-                ],
+                ),
               ),
               actions: [
                 TextButton(
@@ -304,11 +368,72 @@ class _HomeScreenState extends State<HomeScreen> {
     return ListView(
       padding: const EdgeInsets.all(12),
       children: [
+        // Continue Watching carousel
+        if (_continueWatching.isNotEmpty) ...[
+          _buildSectionHeader(
+            title: "Continue Watching",
+            onSeeAll: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const ContinueWatchingScreen()),
+            ),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            height: 130,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              itemCount: _continueWatching.length,
+              itemBuilder: (ctx, i) {
+                final progress = _continueWatching[i];
+                return _ContinueWatchingCard(
+                  progress: progress,
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const ContinueWatchingScreen()),
+                  ),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 16),
+        ],
+
+        // My List carousel
+        if (_myList.isNotEmpty) ...[
+          _buildSectionHeader(
+            title: "My List",
+            onSeeAll: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const WatchlistScreen()),
+            ),
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            height: 160,
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              itemCount: _myList.length,
+              itemBuilder: (ctx, i) {
+                final item = _myList[i];
+                return _WatchlistCard(
+                  item: item,
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => DetailScreen(item: item.toMediaItem())),
+                  ),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 16),
+        ],
+
+        // Trending section
         Row(
-          children: [
-            const Icon(Icons.local_fire_department, color: Colors.amber, size: 20),
-            const SizedBox(width: 6),
-            const Text(
+          children: const [
+            Icon(Icons.local_fire_department, color: Colors.amber, size: 20),
+            SizedBox(width: 6),
+            Text(
               "Trending & Popular",
               style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
             ),
@@ -333,7 +458,144 @@ class _HomeScreenState extends State<HomeScreen> {
       ],
     );
   }
+
+  Widget _buildSectionHeader({required String title, required VoidCallback onSeeAll}) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          title,
+          style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+        TextButton(
+          onPressed: onSeeAll,
+          child: const Text("See all", style: TextStyle(color: Color(0xFFE50914))),
+        ),
+      ],
+    );
+  }
 }
+
+// ─── Continue Watching card ────────────────────────────────────────────────────
+
+class _ContinueWatchingCard extends StatelessWidget {
+  final WatchProgress progress;
+  final VoidCallback onTap;
+
+  const _ContinueWatchingCard({required this.progress, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 100,
+        margin: const EdgeInsets.only(right: 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Stack(
+                children: [
+                  SizedBox(
+                    width: 80,
+                    height: 110,
+                    child: progress.poster != null
+                        ? Image.network(
+                            progress.poster!,
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) => Container(
+                              color: const Color(0xFF1E1E1E),
+                              child: const Center(child: Icon(Icons.movie, color: Colors.white24, size: 30)),
+                            ),
+                          )
+                        : Container(
+                            color: const Color(0xFF1E1E1E),
+                            child: const Center(child: Icon(Icons.movie, color: Colors.white24, size: 30)),
+                          ),
+                  ),
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: LinearProgressIndicator(
+                      value: progress.progressPercentage.clamp(0.0, 1.0),
+                      backgroundColor: Colors.white24,
+                      valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFE50914)),
+                      minHeight: 3,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              progress.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: Colors.white, fontSize: 11),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── My List card ─────────────────────────────────────────────────────────────
+
+class _WatchlistCard extends StatelessWidget {
+  final WatchlistItem item;
+  final VoidCallback onTap;
+
+  const _WatchlistCard({required this.item, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 110,
+        margin: const EdgeInsets.only(right: 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: SizedBox(
+                width: 100,
+                height: 145,
+                child: item.poster != null
+                    ? Image.network(
+                        item.poster!,
+                        fit: BoxFit.cover,
+                        errorBuilder: (context, error, stackTrace) => Container(
+                          color: const Color(0xFF1E1E1E),
+                          child: const Center(child: Icon(Icons.movie, color: Colors.white24, size: 36)),
+                        ),
+                      )
+                    : Container(
+                        color: const Color(0xFF1E1E1E),
+                        child: const Center(child: Icon(Icons.movie, color: Colors.white24, size: 36)),
+                      ),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              item.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: Colors.white, fontSize: 11),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Trending media card ───────────────────────────────────────────────────────
 
 class _MediaCard extends StatelessWidget {
   final MediaItem item;
@@ -357,7 +619,7 @@ class _MediaCard extends StatelessWidget {
                     ? Image.network(
                         item.poster!,
                         fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => const Center(
+                        errorBuilder: (context, error, stackTrace) => const Center(
                           child: Icon(Icons.movie, color: Colors.white24, size: 36),
                         ),
                       )

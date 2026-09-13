@@ -116,9 +116,9 @@ class _DetailScreenState extends State<DetailScreen> {
     final isSeries = type == 2 && _seasons.isNotEmpty;
 
     return Scaffold(
-      backgroundColor: const Color(0xFF121212),
+      backgroundColor: const Color(0xFF0F0F0F),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: Colors.amber))
+          ? const Center(child: CircularProgressIndicator(color: Color(0xFFE50914)))
           : CustomScrollView(
               slivers: [
                 SliverAppBar(
@@ -133,6 +133,8 @@ class _DetailScreenState extends State<DetailScreen> {
                         fontWeight: FontWeight.bold,
                         shadows: [Shadow(color: Colors.black, blurRadius: 8)],
                       ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                     background: Stack(
                       fit: StackFit.expand,
@@ -141,7 +143,7 @@ class _DetailScreenState extends State<DetailScreen> {
                           Image.network(
                             poster,
                             fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) => Container(color: Colors.grey[900]),
+                            errorBuilder: (context, error, stackTrace) => Container(color: Colors.grey[900]),
                           )
                         else
                           Container(color: Colors.grey[900]),
@@ -189,12 +191,12 @@ class _DetailScreenState extends State<DetailScreen> {
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                               decoration: BoxDecoration(
-                                color: Colors.amber.withOpacity(0.2),
+                                color: const Color(0x33E50914),
                                 borderRadius: BorderRadius.circular(4),
                               ),
                               child: Text(
                                 isSeries ? "TV SERIES" : "MOVIE",
-                                style: const TextStyle(color: Colors.amber, fontWeight: FontWeight.bold, fontSize: 11),
+                                style: const TextStyle(color: Color(0xFFE50914), fontWeight: FontWeight.bold, fontSize: 11),
                               ),
                             ),
                           ],
@@ -208,8 +210,8 @@ class _DetailScreenState extends State<DetailScreen> {
                               Expanded(
                                 child: ElevatedButton.icon(
                                   style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.amber,
-                                    foregroundColor: Colors.black,
+                                    backgroundColor: const Color(0xFFE50914),
+                                    foregroundColor: Colors.white,
                                     padding: const EdgeInsets.symmetric(vertical: 14),
                                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                                   ),
@@ -279,10 +281,10 @@ class _DetailScreenState extends State<DetailScreen> {
                                     child: ChoiceChip(
                                       label: Text(s.title),
                                       selected: isSelected,
-                                      selectedColor: Colors.amber,
+                                      selectedColor: const Color(0xFFE50914),
                                       backgroundColor: const Color(0xFF252525),
                                       labelStyle: TextStyle(
-                                        color: isSelected ? Colors.black : Colors.white,
+                                        color: isSelected ? Colors.white : Colors.white70,
                                         fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
                                       ),
                                       onSelected: (_) => _loadEpisodes(s.seasonNumber),
@@ -295,7 +297,7 @@ class _DetailScreenState extends State<DetailScreen> {
 
                           // Episode List
                           if (_isLoadingEpisodes)
-                            const Center(child: Padding(padding: EdgeInsets.all(24.0), child: CircularProgressIndicator(color: Colors.amber)))
+                            const Center(child: Padding(padding: EdgeInsets.all(24.0), child: CircularProgressIndicator(color: Color(0xFFE50914))))
                           else if (_episodes.isEmpty)
                             const Padding(
                               padding: EdgeInsets.all(16.0),
@@ -314,10 +316,10 @@ class _DetailScreenState extends State<DetailScreen> {
                                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                                   child: ListTile(
                                     leading: CircleAvatar(
-                                      backgroundColor: Colors.amber.withOpacity(0.2),
+                                      backgroundColor: const Color(0x33E50914),
                                       child: Text(
                                         "${ep.episodeNumber}",
-                                        style: const TextStyle(color: Colors.amber, fontWeight: FontWeight.bold),
+                                        style: const TextStyle(color: Color(0xFFE50914), fontWeight: FontWeight.bold),
                                       ),
                                     ),
                                     title: Text(ep.title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14)),
@@ -332,7 +334,7 @@ class _DetailScreenState extends State<DetailScreen> {
                                           onPressed: () => _onDownloadTapped(season: ep.seasonNumber, episode: ep.episodeNumber, episodeTitle: ep.title),
                                         ),
                                         IconButton(
-                                          icon: const Icon(Icons.play_circle_fill, color: Colors.amber, size: 28),
+                                          icon: const Icon(Icons.play_circle_fill, color: Color(0xFFE50914), size: 28),
                                           onPressed: () => _onPlayTapped(season: ep.seasonNumber, episode: ep.episodeNumber, episodeTitle: ep.title),
                                         ),
                                       ],
@@ -417,7 +419,7 @@ class _StreamSelectorSheetState extends State<_StreamSelectorSheet> {
         children: [
           Row(
             children: [
-              Icon(widget.isDownloadMode ? Icons.download : Icons.play_circle, color: Colors.amber),
+              Icon(widget.isDownloadMode ? Icons.download : Icons.play_circle, color: const Color(0xFFE50914)),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
@@ -431,7 +433,7 @@ class _StreamSelectorSheetState extends State<_StreamSelectorSheet> {
           ),
           const SizedBox(height: 16),
           if (_loading)
-            const Center(child: Padding(padding: EdgeInsets.all(24.0), child: CircularProgressIndicator(color: Colors.amber)))
+            const Center(child: Padding(padding: EdgeInsets.all(24.0), child: CircularProgressIndicator(color: Color(0xFFE50914))))
           else if (_error != null)
             Padding(
               padding: const EdgeInsets.all(16.0),
@@ -457,10 +459,10 @@ class _StreamSelectorSheetState extends State<_StreamSelectorSheet> {
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(
-                          color: Colors.amber.withOpacity(0.2),
+                          color: const Color(0x33E50914),
                           borderRadius: BorderRadius.circular(4),
                         ),
-                        child: Text(s.kind.toUpperCase(), style: const TextStyle(color: Colors.amber, fontSize: 10, fontWeight: FontWeight.bold)),
+                        child: Text(s.kind.toUpperCase(), style: const TextStyle(color: Color(0xFFE50914), fontSize: 10, fontWeight: FontWeight.bold)),
                       ),
                       if (s.bypassedDecoy) ...[
                         const SizedBox(width: 6),
@@ -471,7 +473,7 @@ class _StreamSelectorSheetState extends State<_StreamSelectorSheet> {
                   subtitle: s.sizeMb != null
                       ? Text("${s.sizeMb} MB", style: const TextStyle(color: Colors.white54, fontSize: 12))
                       : null,
-                  trailing: Icon(widget.isDownloadMode ? Icons.file_download : Icons.play_arrow, color: Colors.amber),
+                  trailing: Icon(widget.isDownloadMode ? Icons.file_download : Icons.play_arrow, color: const Color(0xFFE50914)),
                   onTap: () {
                     Navigator.pop(context);
                     if (widget.isDownloadMode) {

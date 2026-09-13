@@ -124,20 +124,26 @@ class _HomeScreenState extends State<HomeScreen> {
                       style: TextStyle(color: Colors.white70, fontSize: 13),
                     ),
                     const SizedBox(height: 12),
+                    // ignore: deprecated_member_use
                     RadioListTile<bool>(
                       value: false,
+                      // ignore: deprecated_member_use
                       groupValue: gateway,
-                      activeColor: Colors.amber,
+                      activeColor: const Color(0xFFE50914),
                       title: const Text("Direct Mode (Standalone)", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
                       subtitle: const Text("Connects directly using embedded signatures. No computer or server needed.", style: TextStyle(color: Colors.white54, fontSize: 12)),
+                      // ignore: deprecated_member_use
                       onChanged: (v) => setDialogState(() => gateway = v!),
                     ),
+                    // ignore: deprecated_member_use
                     RadioListTile<bool>(
                       value: true,
+                      // ignore: deprecated_member_use
                       groupValue: gateway,
-                      activeColor: Colors.amber,
+                      activeColor: const Color(0xFFE50914),
                       title: const Text("Gateway Mode (Custom Server)", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
                       subtitle: const Text("Routes calls through your local or remote MBX wrapper server.", style: TextStyle(color: Colors.white54, fontSize: 12)),
+                      // ignore: deprecated_member_use
                       onChanged: (v) => setDialogState(() => gateway = v!),
                     ),
                     if (gateway) ...[
@@ -335,159 +341,177 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildHomeFeed() {
-    return ListView(
-      padding: const EdgeInsets.all(12),
-      children: [
-        // Continue Watching carousel
-        if (_continueWatching.isNotEmpty) ...[
-          _buildSectionHeader(
-            title: "Continue Watching",
-            onSeeAll: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const ContinueWatchingScreen()),
-            ),
-          ),
-          const SizedBox(height: 8),
-          SizedBox(
-            height: 150,
-            child: ListView.builder(
-              scrollDirection: Axis.horizontal,
-              itemCount: _continueWatching.length,
-              itemBuilder: (ctx, i) {
-                final progress = _continueWatching[i];
-                return _ContinueWatchingCard(
-                  progress: progress,
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const ContinueWatchingScreen()),
-                  ),
-                );
-              },
-            ),
-          ),
-          const SizedBox(height: 16),
-        ],
-
-        // My List carousel
-        if (_myList.isNotEmpty) ...[
-          _buildSectionHeader(
-            title: "My List",
-            onSeeAll: () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const WatchlistScreen()),
-            ),
-          ),
-          const SizedBox(height: 8),
-          SizedBox(
-            height: 185,
-            child: ListView.builder(
-              scrollDirection: Axis.horizontal,
-              itemCount: _myList.length,
-              itemBuilder: (ctx, i) {
-                final item = _myList[i];
-                return _WatchlistCard(
-                  item: item,
-                  onTap: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => DetailScreen(item: item.toMediaItem())),
-                  ),
-                );
-              },
-            ),
-          ),
-          const SizedBox(height: 16),
-        ],
-
-        // Trending section
-        const Row(
-          children: [
-            Icon(Icons.local_fire_department, color: Colors.amber, size: 20),
-            SizedBox(width: 6),
-            Text(
-              "Trending & Popular",
-              style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        if (_isLoadingTrending)
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 48),
-            child: Center(child: CircularProgressIndicator(color: Color(0xFFE50914))),
-          )
-        else if (_trending.isEmpty)
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 32),
-            child: Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(Icons.movie_filter_outlined, color: Colors.white24, size: 48),
-                  const SizedBox(height: 12),
-                  const Text(
-                    "No trending titles found",
-                    style: TextStyle(color: Colors.white70, fontSize: 14),
-                  ),
-                  const SizedBox(height: 12),
-                  ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFE50914),
-                      foregroundColor: Colors.white,
-                    ),
-                    onPressed: _loadTrending,
-                    icon: const Icon(Icons.refresh),
-                    label: const Text("Retry"),
-                  ),
-                ],
-              ),
-            ),
-          )
-        else
-          GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 3,
-              childAspectRatio: 0.65,
-              crossAxisSpacing: 10,
-              mainAxisSpacing: 10,
-            ),
-            itemCount: _trending.length,
-            itemBuilder: (ctx, i) {
-              final item = _trending[i];
-              return _MediaCard(item: item);
-            },
-          ),
-
-        // Home footer Credits badge
-        const SizedBox(height: 24),
-        Center(
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-            decoration: BoxDecoration(
-              color: const Color(0xFF1A0000),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: const Color(0xFFE50914)),
-            ),
-            child: const Column(
-              mainAxisSize: MainAxisSize.min,
+    return CustomScrollView(
+      cacheExtent: 600,
+      slivers: [
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.code, color: Color(0xFFE50914), size: 20),
-                SizedBox(height: 4),
-                Text(
-                  'Made by Hackedghost64',
-                  style: TextStyle(
-                    color: Color(0xFFE50914),
-                    fontSize: 13,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 1.0,
+                // Continue Watching carousel
+                if (_continueWatching.isNotEmpty) ...[
+                  _buildSectionHeader(
+                    title: "Continue Watching",
+                    onSeeAll: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const ContinueWatchingScreen()),
+                    ),
                   ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    height: 150,
+                    child: ListView.builder(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: _continueWatching.length,
+                      itemBuilder: (ctx, i) {
+                        final progress = _continueWatching[i];
+                        return _ContinueWatchingCard(
+                          progress: progress,
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (_) => const ContinueWatchingScreen()),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+
+                // My List carousel
+                if (_myList.isNotEmpty) ...[
+                  _buildSectionHeader(
+                    title: "My List",
+                    onSeeAll: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const WatchlistScreen()),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    height: 185,
+                    child: ListView.builder(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: _myList.length,
+                      itemBuilder: (ctx, i) {
+                        final item = _myList[i];
+                        return _WatchlistCard(
+                          item: item,
+                          onTap: () => Navigator.push(
+                            context,
+                            MaterialPageRoute(builder: (_) => DetailScreen(item: item.toMediaItem())),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                ],
+
+                // Trending header
+                const Row(
+                  children: [
+                    Icon(Icons.local_fire_department, color: Color(0xFFE50914), size: 20),
+                    SizedBox(width: 6),
+                    Text(
+                      "Trending & Popular",
+                      style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                    ),
+                  ],
                 ),
+                const SizedBox(height: 12),
               ],
             ),
           ),
         ),
-        const SizedBox(height: 16),
+
+        if (_isLoadingTrending)
+          const SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.symmetric(vertical: 48),
+              child: Center(child: CircularProgressIndicator(color: Color(0xFFE50914))),
+            ),
+          )
+        else if (_trending.isEmpty)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 32),
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.movie_filter_outlined, color: Colors.white24, size: 48),
+                    const SizedBox(height: 12),
+                    const Text(
+                      "No trending titles found",
+                      style: TextStyle(color: Colors.white70, fontSize: 14),
+                    ),
+                    const SizedBox(height: 12),
+                    ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFE50914),
+                        foregroundColor: Colors.white,
+                      ),
+                      onPressed: _loadTrending,
+                      icon: const Icon(Icons.refresh),
+                      label: const Text("Retry"),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          )
+        else
+          SliverPadding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            sliver: SliverGrid(
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 3,
+                childAspectRatio: 0.65,
+                crossAxisSpacing: 10,
+                mainAxisSpacing: 10,
+              ),
+              delegate: SliverChildBuilderDelegate(
+                (ctx, i) => _MediaCard(item: _trending[i]),
+                childCount: _trending.length,
+              ),
+            ),
+          ),
+
+        // Home footer Credits badge
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.only(top: 24, bottom: 20),
+            child: Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1A0000),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFFE50914)),
+                ),
+                child: const Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.code, color: Color(0xFFE50914), size: 20),
+                    SizedBox(height: 4),
+                    Text(
+                      'Made by Hackedghost64',
+                      style: TextStyle(
+                        color: Color(0xFFE50914),
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 1.0,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
       ],
     );
   }
@@ -538,6 +562,7 @@ class _ContinueWatchingCard extends StatelessWidget {
                         ? Image.network(
                             progress.poster!,
                             fit: BoxFit.cover,
+                            cacheWidth: 200,
                             errorBuilder: (context, error, stackTrace) => Container(
                               color: const Color(0xFF1E1E1E),
                               child: const Center(child: Icon(Icons.movie, color: Colors.white24, size: 30)),
@@ -603,6 +628,7 @@ class _WatchlistCard extends StatelessWidget {
                     ? Image.network(
                         item.poster!,
                         fit: BoxFit.cover,
+                        cacheWidth: 220,
                         errorBuilder: (context, error, stackTrace) => Container(
                           color: const Color(0xFF1E1E1E),
                           child: const Center(child: Icon(Icons.movie, color: Colors.white24, size: 36)),
@@ -652,6 +678,7 @@ class _MediaCard extends StatelessWidget {
                     ? Image.network(
                         item.poster!,
                         fit: BoxFit.cover,
+                        cacheWidth: 260,
                         errorBuilder: (context, error, stackTrace) => const Center(
                           child: Icon(Icons.movie, color: Colors.white24, size: 36),
                         ),

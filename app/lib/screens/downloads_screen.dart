@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import '../models/media_models.dart';
 import '../services/download_service.dart';
+import 'netflix_player_screen.dart';
 
 class DownloadsScreen extends StatelessWidget {
   const DownloadsScreen({super.key});
@@ -7,12 +9,17 @@ class DownloadsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final downloadService = DownloadService.instance;
+    const accentRed = Color(0xFFE50914);
 
     return Scaffold(
-      backgroundColor: const Color(0xFF121212),
+      backgroundColor: const Color(0xFF0F0F0F),
       appBar: AppBar(
-        backgroundColor: const Color(0xFF1E1E1E),
-        title: const Text("Downloads", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+        backgroundColor: const Color(0xFF0F0F0F),
+        elevation: 0,
+        title: const Text(
+          "Downloads",
+          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20, color: Colors.white),
+        ),
       ),
       body: ListenableBuilder(
         listenable: downloadService,
@@ -23,11 +30,13 @@ class DownloadsScreen extends StatelessWidget {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(Icons.download_for_offline_outlined, color: Colors.white24, size: 64),
+                  Icon(Icons.download_for_offline_outlined, color: Colors.white24, size: 72),
                   SizedBox(height: 16),
-                  Text("No downloads yet", style: TextStyle(color: Colors.white54, fontSize: 16)),
+                  Text("No downloads yet", style: TextStyle(color: Colors.white70, fontSize: 18, fontWeight: FontWeight.bold)),
                   SizedBox(height: 8),
-                  Text("Search a movie or show and tap download", style: TextStyle(color: Colors.white30, fontSize: 13)),
+                  Text("Downloaded movies and episodes appear here for offline viewing",
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.white38, fontSize: 13)),
                 ],
               ),
             );
@@ -41,62 +50,119 @@ class DownloadsScreen extends StatelessWidget {
               return Card(
                 color: const Color(0xFF1E1E1E),
                 margin: const EdgeInsets.only(bottom: 12),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                child: Padding(
-                  padding: const EdgeInsets.all(14.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(
-                            task.isCompleted ? Icons.check_circle : Icons.downloading,
-                            color: task.isCompleted ? Colors.greenAccent : Colors.amber,
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              task.title,
-                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(12),
+                  onTap: task.isCompleted
+                      ? () => _playOffline(context, task)
+                      : null,
+                  child: Padding(
+                    padding: const EdgeInsets.all(14.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(
+                              task.isCompleted
+                                  ? Icons.check_circle
+                                  : (task.isCancelled ? Icons.cancel : Icons.downloading),
+                              color: task.isCompleted
+                                  ? Colors.greenAccent
+                                  : (task.isCancelled ? Colors.redAccent : accentRed),
+                              size: 24,
                             ),
-                          ),
-                          if (task.isCompleted)
-                            IconButton(
-                              icon: const Icon(Icons.play_circle_fill, color: Colors.amber, size: 28),
-                              onPressed: () => downloadService.openFile(task.filePath),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    task.title,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 14,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    task.status,
+                                    style: const TextStyle(color: Colors.white54, fontSize: 12),
+                                  ),
+                                ],
+                              ),
                             ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      if (!task.isCompleted)
-                        LinearProgressIndicator(
-                          value: task.progress > 0 ? task.progress : null,
-                          backgroundColor: Colors.white12,
-                          color: Colors.amber,
-                          minHeight: 4,
+                            if (task.isCompleted) ...[
+                              IconButton(
+                                icon: const Icon(Icons.play_circle_fill, color: accentRed, size: 32),
+                                tooltip: "Watch Offline",
+                                onPressed: () => _playOffline(context, task),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.delete_outline, color: Colors.white54, size: 22),
+                                tooltip: "Delete Download",
+                                onPressed: () => downloadService.deleteDownload(task.id),
+                              ),
+                            ] else if (!task.isCancelled) ...[
+                              IconButton(
+                                icon: const Icon(Icons.close, color: Colors.white54, size: 22),
+                                tooltip: "Cancel Download",
+                                onPressed: () => downloadService.cancelDownload(task.id),
+                              ),
+                            ] else ...[
+                              IconButton(
+                                icon: const Icon(Icons.delete_outline, color: Colors.white54, size: 22),
+                                tooltip: "Remove",
+                                onPressed: () => downloadService.deleteDownload(task.id),
+                              ),
+                            ],
+                          ],
                         ),
-                      const SizedBox(height: 6),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(task.status, style: const TextStyle(color: Colors.white54, fontSize: 12)),
-                          if (task.isCompleted)
-                            TextButton(
-                              style: TextButton.styleFrom(padding: EdgeInsets.zero, minimumSize: Size.zero),
-                              onPressed: () => downloadService.openFile(task.filePath),
-                              child: const Text("Open File", style: TextStyle(color: Colors.amber, fontSize: 12)),
+                        if (!task.isCompleted && !task.isCancelled) ...[
+                          const SizedBox(height: 10),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(4),
+                            child: LinearProgressIndicator(
+                              value: task.progress > 0 ? task.progress : null,
+                              backgroundColor: Colors.white12,
+                              valueColor: const AlwaysStoppedAnimation<Color>(accentRed),
+                              minHeight: 4,
                             ),
+                          ),
                         ],
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               );
             },
           );
         },
+      ),
+    );
+  }
+
+  void _playOffline(BuildContext context, DownloadTask task) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => NetflixPlayerScreen(
+          subjectId: task.id,
+          title: task.title,
+          season: 0,
+          episode: 0,
+          stream: StreamOption(
+            url: task.filePath,
+            kind: task.filePath.endsWith('.mpd') ? 'dash' : 'mp4',
+            resolution: 'Offline',
+            bypassedDecoy: true,
+          ),
+          availableStreams: [],
+          isSeries: false,
+        ),
       ),
     );
   }

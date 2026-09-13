@@ -27,7 +27,7 @@ class MediaItem {
     }
 
     final yearVal = json['year'] ?? json['releaseYear'] ?? json['releaseDate'];
-    final yearStr = yearVal != null ? yearVal.toString().substring(0, yearVal.toString().length >= 4 ? 4 : null) : null;
+    final yearStr = yearVal?.toString().substring(0, yearVal.toString().length >= 4 ? 4 : null);
     final ratingVal = json['score'] ?? json['rating'] ?? json['imdbScore'];
 
     return MediaItem(
@@ -91,9 +91,10 @@ class StreamOption {
 class DownloadTask {
   final String id;
   final String title;
-  final String filePath;
+  String filePath;
   double progress;
   bool isCompleted;
+  bool isCancelled;
   String status;
 
   DownloadTask({
@@ -102,6 +103,7 @@ class DownloadTask {
     required this.filePath,
     this.progress = 0.0,
     this.isCompleted = false,
+    this.isCancelled = false,
     this.status = 'Downloading',
   });
 }

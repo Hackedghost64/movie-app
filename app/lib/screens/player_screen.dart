@@ -134,7 +134,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     return Scaffold(
       backgroundColor: Colors.black,
       appBar: AppBar(
-        backgroundColor: Colors.black.withOpacity(0.7),
+        backgroundColor: Colors.black.withValues(alpha: 0.7),
         title: Text(widget.title, style: const TextStyle(fontSize: 16)),
         actions: [
           if (widget.availableStreams.length > 1)

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -8,6 +9,7 @@ import 'package:video_player/video_player.dart';
 import '../models/media_models.dart';
 import '../models/storage_models.dart';
 import '../services/storage_service.dart';
+import '../services/moviebox_api.dart';
 
 /// Netflix-style video player with custom overlay controls.
 class NetflixPlayerScreen extends StatefulWidget {
@@ -60,6 +62,19 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
   BoxFit _boxFit = BoxFit.contain;
   static const List<BoxFit> _fits = [BoxFit.contain, BoxFit.fill, BoxFit.cover];
 
+  String get _fitLabel {
+    switch (_boxFit) {
+      case BoxFit.contain:
+        return 'Fit';
+      case BoxFit.fill:
+        return 'Fill';
+      case BoxFit.cover:
+        return 'Crop';
+      default:
+        return 'Fit';
+    }
+  }
+
   // ── Double-tap ripple ─────────────────────────────────────────────────────
   bool _showRewindRipple = false;
   bool _showForwardRipple = false;
@@ -68,6 +83,7 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
   // ── Auto-save timer ───────────────────────────────────────────────────────
   Timer? _saveTimer;
   bool _saveTimerStarted = false;
+  int _lastTick = 0;
 
   // ── Slider drag state ─────────────────────────────────────────────────────
   double? _dragValue;
@@ -93,27 +109,42 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
   void initState() {
     super.initState();
     _currentStream = widget.stream;
-    // Force landscape
-    SystemChrome.setPreferredOrientations([
-      DeviceOrientation.landscapeLeft,
-      DeviceOrientation.landscapeRight,
-    ]);
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    _enterImmersive();
     _initPlayer();
-    _resetHideTimer();
   }
 
   @override
   void dispose() {
+    _saveProgress();
     _hideTimer?.cancel();
     _rippleTimer?.cancel();
     _saveTimer?.cancel();
     _controller?.removeListener(_onVideoEvent);
     _controller?.dispose();
-    // Restore UI
-    SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    _exitImmersive();
     super.dispose();
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Immersive mode & orientation
+  // ─────────────────────────────────────────────────────────────────────────
+
+  Future<void> _enterImmersive() async {
+    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    await SystemChrome.setPreferredOrientations([
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+  }
+
+  Future<void> _exitImmersive() async {
+    await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    await SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -139,10 +170,17 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
         headers['Cookie'] = _currentStream.cookie!;
       }
 
-      final ctrl = VideoPlayerController.networkUrl(
-        Uri.parse(_currentStream.url),
-        httpHeaders: headers,
-      );
+      final VideoPlayerController ctrl;
+      if (_currentStream.url.startsWith('http://') || _currentStream.url.startsWith('https://')) {
+        ctrl = VideoPlayerController.networkUrl(
+          Uri.parse(_currentStream.url),
+          httpHeaders: headers,
+        );
+      } else {
+        ctrl = VideoPlayerController.file(
+          File(_currentStream.url),
+        );
+      }
       _controller = ctrl;
       ctrl.addListener(_onVideoEvent);
 
@@ -179,7 +217,12 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
 
   void _onVideoEvent() {
     if (!mounted) return;
-    setState(() {});
+    final now = DateTime.now().millisecondsSinceEpoch;
+    // Only rebuild UI if controls are visible and throttled to at most once per 200ms
+    if (_showControls && now - _lastTick > 200) {
+      _lastTick = now;
+      setState(() {});
+    }
 
     // Start auto-save timer on first play
     if (_isPlaying && !_saveTimerStarted) {
@@ -458,16 +501,167 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
     return h > 0 ? '$h:$m:$s' : '$m:$s';
   }
 
-  String get _fitLabel {
-    switch (_boxFit) {
-      case BoxFit.contain:
-        return 'Fit';
-      case BoxFit.fill:
-        return 'Fill';
-      case BoxFit.cover:
-        return 'Crop';
-      default:
-        return 'Fit';
+  // ─────────────────────────────────────────────────────────────────────────
+  // Audio & Language bottom sheet
+  // ─────────────────────────────────────────────────────────────────────────
+
+  void _showLanguageSheet() {
+    _onUserInteraction();
+    final baseTitle = widget.title.replaceAll(RegExp(r'\[.*?\]'), '').trim();
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1E1E1E),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return FutureBuilder<List<MediaItem>>(
+          future: MovieBoxApi.instance.search(baseTitle),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Padding(
+                padding: EdgeInsets.all(40.0),
+                child: Center(
+                  child: CircularProgressIndicator(color: _accentRed),
+                ),
+              );
+            }
+            final allResults = snapshot.data ?? [];
+            final langItems = allResults.where((item) {
+              final t = item.title.toLowerCase();
+              final b = baseTitle.toLowerCase();
+              return t.contains(b) || b.contains(t);
+            }).toList();
+
+            if (langItems.isEmpty) {
+              langItems.add(MediaItem(id: widget.subjectId, title: widget.title));
+            }
+
+            return Padding(
+              padding: const EdgeInsets.all(20.0),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Row(
+                    children: [
+                      Icon(Icons.translate, color: _accentRed, size: 20),
+                      SizedBox(width: 8),
+                      Text(
+                        'Audio & Language',
+                        style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  const Text('Select audio / dub edition:',
+                      style: TextStyle(color: Colors.white54, fontSize: 12)),
+                  const SizedBox(height: 10),
+                  Flexible(
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: langItems.length,
+                      itemBuilder: (context, index) {
+                        final item = langItems[index];
+                        final isCurrent = item.id == widget.subjectId;
+                        String langLabel = 'Original / English';
+                        final lowerTitle = item.title.toLowerCase();
+                        if (lowerTitle.contains('hindi')) {
+                          langLabel = 'Hindi Dub';
+                        } else if (lowerTitle.contains('tamil')) {
+                          langLabel = 'Tamil Dub';
+                        } else if (lowerTitle.contains('telugu')) {
+                          langLabel = 'Telugu Dub';
+                        } else if (lowerTitle.contains('spanish')) {
+                          langLabel = 'Spanish Dub';
+                        }
+
+                        return Card(
+                          color: isCurrent
+                              ? const Color(0xFF2E1A1A)
+                              : const Color(0xFF2A2A2A),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            side: BorderSide(
+                              color: isCurrent ? _accentRed : Colors.transparent,
+                            ),
+                          ),
+                          child: ListTile(
+                            leading: Icon(
+                              isCurrent ? Icons.check_circle : Icons.audiotrack,
+                              color: isCurrent ? _accentRed : Colors.white54,
+                            ),
+                            title: Text(
+                              langLabel,
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: isCurrent
+                                    ? FontWeight.bold
+                                    : FontWeight.normal,
+                              ),
+                            ),
+                            subtitle: Text(
+                              item.title,
+                              style: const TextStyle(
+                                  color: Colors.white54, fontSize: 11),
+                            ),
+                            onTap: () {
+                              Navigator.pop(ctx);
+                              if (!isCurrent) {
+                                _switchLanguage(item);
+                              }
+                            },
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _switchLanguage(MediaItem item) async {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Switching audio to ${item.title}...')),
+    );
+    try {
+      final savedPos = _controller?.value.position;
+      final newStreams = await MovieBoxApi.instance.getStreams(
+        item.id,
+        season: widget.season,
+        episode: widget.episode,
+      );
+      if (newStreams.isNotEmpty && mounted) {
+        setState(() {
+          _currentStream = newStreams.first;
+        });
+        await _initPlayer(seekTo: savedPos);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Playing in ${item.title}')),
+          );
+        }
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No streams found for this language edition.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to switch audio: $e')),
+        );
+      }
     }
   }
 
@@ -532,7 +726,7 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
       child: SizedBox(
         width: ctrl.value.size.width,
         height: ctrl.value.size.height,
-        child: VideoPlayer(ctrl),
+        child: RepaintBoundary(child: VideoPlayer(ctrl)),
       ),
     );
   }
@@ -872,6 +1066,30 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
                 style: const TextStyle(color: Colors.white70, fontSize: 12),
               ),
               const Spacer(),
+              // Audio & Language button
+              GestureDetector(
+                onTap: _showLanguageSheet,
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: Colors.white12,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.translate, color: Colors.white70, size: 12),
+                      SizedBox(width: 4),
+                      Text(
+                        'Audio/Lang',
+                        style: TextStyle(color: Colors.white, fontSize: 11),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
               // Quality badge
               GestureDetector(
                 onTap: _showResolutionSheet,

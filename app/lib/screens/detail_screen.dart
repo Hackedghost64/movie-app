@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/media_models.dart';
 import '../services/moviebox_api.dart';
 import '../services/download_service.dart';
-import 'player_screen.dart';
+import 'netflix_player_screen.dart';
 
 class DetailScreen extends StatefulWidget {
   final MediaItem item;
@@ -462,10 +462,15 @@ class _StreamSelectorSheetState extends State<_StreamSelectorSheet> {
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (_) => PlayerScreen(
+                          builder: (_) => NetflixPlayerScreen(
+                            subjectId: widget.subjectId,
                             title: widget.title,
+                            poster: null,
+                            season: widget.season,
+                            episode: widget.episode,
                             stream: s,
                             availableStreams: _streams,
+                            isSeries: widget.season > 0,
                           ),
                         ),
                       );

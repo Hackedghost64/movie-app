@@ -159,9 +159,14 @@ class MovieBoxApi {
         "/wefeed-mobile-bff/subject-api/search-suggest",
         params: {"q": "a"},
       );
-      _bootstrapCompleter!.complete();
+      if (!_bootstrapCompleter!.isCompleted) {
+        _bootstrapCompleter!.complete();
+      }
     } catch (e) {
-      _bootstrapCompleter!.completeError(e);
+      if (!_bootstrapCompleter!.isCompleted) {
+        _bootstrapCompleter!.completeError(e);
+      }
+      _bootstrapCompleter!.future.catchError((_) {});
       rethrow;
     } finally {
       _bootstrapCompleter = null;
@@ -536,8 +541,11 @@ class MovieBoxApi {
         bool isDecoyBypassed = false;
 
         // Bypass decoy update video if detected or if real stream extracted from signed cookie
-        final isDecoy = rawUrl.contains("b164fbfb4347792950bdfbfb563d39d9") || rawUrl.contains("/other/2026/09/04/");
-        if (realTuple != null && (isDecoy || rawUrl.isEmpty)) {
+        final isDecoy = rawUrl.contains("b164fbfb4347792950bdfbfb563d39d9") ||
+            rawUrl.contains("/other/2026/09/04/") ||
+            rawUrl.contains("/other/") ||
+            rawUrl.isEmpty;
+        if (realTuple != null && (isDecoy || rawUrl.contains("aoneroom.com/other"))) {
           effectiveUrl = realTuple[0];
           effectiveKind = realTuple[1];
           isDecoyBypassed = true;
@@ -583,12 +591,16 @@ class MovieBoxApi {
       final trimmed = part.trim();
       if (trimmed.startsWith("CloudFront-Policy=")) {
         var b64 = trimmed.substring("CloudFront-Policy=".length);
-        b64 = b64.replaceAll("-", "+").replaceAll("_", "/");
+        // AWS CloudFront signed cookie base64 character mapping:
+        // '-' -> '+'
+        // '~' -> '/'
+        // '_' -> '='
+        b64 = b64.replaceAll("-", "+").replaceAll("~", "/").replaceAll("_", "=");
         while (b64.length % 4 != 0) {
           b64 += "=";
         }
         try {
-          final decoded = utf8.decode(base64.decode(b64));
+          final decoded = utf8.decode(base64.decode(b64), allowMalformed: true);
           final resMatch = RegExp(r'"Resource"\s*:\s*"([^"]+)"').firstMatch(decoded);
           if (resMatch != null) {
             final rawResource = resMatch.group(1)!;

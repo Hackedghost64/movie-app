@@ -3,6 +3,7 @@ import '../models/media_models.dart';
 import '../services/moviebox_api.dart';
 import '../services/download_service.dart';
 import '../services/storage_service.dart';
+import '../services/content_filter_service.dart';
 import 'netflix_player_screen.dart';
 
 class DetailScreen extends StatefulWidget {
@@ -111,6 +112,38 @@ class _DetailScreenState extends State<DetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (ContentFilterService.instance.isNsfw(widget.item)) {
+      return Scaffold(
+        backgroundColor: const Color(0xFF0F0F0F),
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+        ),
+        body: const Center(
+          child: Padding(
+            padding: EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.shield, color: Color(0xFFE50914), size: 64),
+                SizedBox(height: 16),
+                Text(
+                  "Content Restricted",
+                  style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+                ),
+                SizedBox(height: 8),
+                Text(
+                  "This title is blocked by the Family Safe filter.",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.white54, fontSize: 14),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     final poster = widget.item.poster;
     final type = _details?['subjectType'] as int? ?? widget.item.type ?? 1;
     final isSeries = type == 2 && _seasons.isNotEmpty;

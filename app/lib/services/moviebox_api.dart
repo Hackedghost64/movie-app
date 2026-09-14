@@ -301,6 +301,10 @@ class MovieBoxApi {
   // ---------------- Public API Methods ----------------
 
   Future<List<MediaItem>> search(String query) async {
+    if (ContentFilterService.instance.isQueryNsfw(query)) {
+      debugPrint("Search query '$query' blocked by Family Safe filter.");
+      return [];
+    }
     List<MediaItem> rawItems = [];
     if (useGateway) {
       final res = await _requestGateway("/search", params: {"q": query});

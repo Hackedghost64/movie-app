@@ -19,15 +19,26 @@ class ContentFilterService extends ChangeNotifier {
     RegExp(r'\b18\+', caseSensitive: false),
     RegExp(r'\b(nc-?17|r-?18|xxx|adult only|for adults)\b', caseSensitive: false),
     
-    // Explicit themes and words
-    RegExp(r'\b(erotic\w*|porn\w*|hentai|ecchi|softcore|hardcore|uncensored)\b', caseSensitive: false),
-    RegExp(r'\b(nudity|nude\w*|strip club|stripper|sensual massage|lustful)\b', caseSensitive: false),
-    RegExp(r'\b(sex|sexy|sexual\w*|fetish|voyeur|camgirl|escort|brothel)\b', caseSensitive: false),
-    RegExp(r'\b(hot short|hot series|playboy|penthouse)\b', caseSensitive: false),
+    // Genitalia and sexual anatomy
+    RegExp(r'\b(pussy|pussies|dick|dicks|cock|cocks|vagina|vaginas|penis|penises|clit|clitoris|boob|boobs|tits|titties|asshole|dildo|dildos|anus|nipple|nipples|pubic)\b', caseSensitive: false),
+
+    // Sexual acts, fluids, and pornography
+    RegExp(
+      r'\b(fucking|fuck|fucked|fingering|creampie\w*|squirt|squirting|squirts|blowjob\w*|handjob\w*|cum|cumming|cums|deepthroat|orgasm\w*|masturbat\w*|intercourse|penetrat\w*|ejaculat\w*|gangbang|orgy|threesome|doggystyle|doggy style|bdsm|bondage|sex toy|pleasure toy)\b',
+      caseSensitive: false,
+    ),
+
+    // Adult genres, themes, and tags
+    RegExp(
+      r'\b(adult|erotic\w*|porn\w*|hentai|ecchi|softcore|hardcore|uncensored|jav|javhd|taboo|incest|stepsister|stepdaughter|stepmom|stepsis|bhabhi|milf|camgirl|escort|brothel|stripper|strip club|nudity|nude\w*|lustful|sensual massage|fetish|voyeur|playboy|penthouse|busty|slut|whore)\b',
+      caseSensitive: false,
+    ),
+    RegExp(r'\b(sex|sexy|sexual\w*)\b', caseSensitive: false),
+    RegExp(r'\b(hot short|hot series)\b', caseSensitive: false),
 
     // Indian adult web series platforms and tags (frequently appearing in aggregator databases)
     RegExp(
-      r'\b(ullu|kooku|primeshots|primeplay|voovi|rabbit|bigshots|hunters|fliz|chikooflix|jalva|moodx|besharams|yessma|cinema dosti|gupchup|hotshots|red prime|bhabhi)\b',
+      r'\b(ullu|kooku|primeshots|primeplay|voovi|rabbit|bigshots|hunters|fliz|chikooflix|jalva|moodx|besharams|yessma|cinema dosti|gupchup|hotshots|red prime)\b',
       caseSensitive: false,
     ),
   ];
@@ -57,9 +68,21 @@ class ContentFilterService extends ChangeNotifier {
     return false;
   }
 
+  /// Checks whether a search query is considered NSFW.
+  bool isQueryNsfw(String query) {
+    if (!_isFilterEnabled) return false;
+    return isNsfwString(query);
+  }
+
   /// Checks whether a MediaItem is considered NSFW.
   bool isNsfw(MediaItem item) {
     if (!_isFilterEnabled) return false;
+
+    // Check upstream category/genre
+    if (item.genre != null) {
+      final g = item.genre!.toLowerCase();
+      if (g.contains('adult') || isNsfwString(g)) return true;
+    }
 
     // Check title
     if (isNsfwString(item.title)) return true;

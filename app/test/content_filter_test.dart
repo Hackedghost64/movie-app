@@ -47,6 +47,40 @@ void main() {
     expect(filtered.length, equals(safeItems.length));
   });
 
+  test('Blocks explicit search queries (pussy, porn, xxx, sex)', () async {
+    final filter = ContentFilterService.instance;
+    await filter.init();
+
+    expect(filter.isQueryNsfw('pussy'), isTrue);
+    expect(filter.isQueryNsfw('PUSSY'), isTrue);
+    expect(filter.isQueryNsfw('play with my pussy'), isTrue);
+    expect(filter.isQueryNsfw('porn'), isTrue);
+    expect(filter.isQueryNsfw('xxx adult'), isTrue);
+    expect(filter.isQueryNsfw('fuck'), isTrue);
+
+    // Safe queries are NOT blocked
+    expect(filter.isQueryNsfw('Avengers'), isFalse);
+    expect(filter.isQueryNsfw('Spider-Man'), isFalse);
+    expect(filter.isQueryNsfw('Daredevil'), isFalse);
+  });
+
+  test('Blocks items tagged with Genre Adult or explicit titles', () async {
+    final filter = ContentFilterService.instance;
+    await filter.init();
+
+    final explicitItems = [
+      MediaItem(id: '101', title: 'Pussy fingering solo teen', genre: 'Adult'),
+      MediaItem(id: '102', title: 'play with my pussy, but please don’t get me pregnant!', genre: 'Adult'),
+      MediaItem(id: '103', title: 'Filled Ebony With So Much Cum!', genre: 'Adult'),
+      MediaItem(id: '104', title: 'Action Film', genre: 'Adult'), // Blocked purely because genre is Adult
+      MediaItem(id: '105', title: 'Stepsis Lets Me Rub Her', genre: 'Adult'),
+      MediaItem(id: '106', title: 'City Girls - Pussy Talk ft. Doja Cat', genre: 'Pop'), // Blocked because title has pussy
+    ];
+
+    final filtered = filter.filterMediaList(explicitItems);
+    expect(filtered.isEmpty, isTrue);
+  });
+
   test('Toggle filter off allows all titles and persists', () async {
     final filter = ContentFilterService.instance;
     await filter.init();

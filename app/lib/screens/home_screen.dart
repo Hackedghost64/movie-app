@@ -120,7 +120,15 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _performSearch(String query) async {
-    if (query.trim().isEmpty) {
+    final q = query.trim();
+    if (q.isEmpty) {
+      setState(() {
+        _searchResults = [];
+        _isSearching = false;
+      });
+      return;
+    }
+    if (ContentFilterService.instance.isQueryNsfw(q)) {
       setState(() {
         _searchResults = [];
         _isSearching = false;
@@ -129,7 +137,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     setState(() => _isSearching = true);
     try {
-      final results = await MovieBoxApi.instance.search(query.trim());
+      final results = await MovieBoxApi.instance.search(q);
       if (mounted) {
         setState(() {
           _searchResults = results;
@@ -392,7 +400,30 @@ class _HomeScreenState extends State<HomeScreen> {
           // Content Area
           Expanded(
             child: _isSearching
-                ? const Center(child: CircularProgressIndicator(color: Colors.amber))
+                ? const Center(child: CircularProgressIndicator(color: Color(0xFFE50914)))
+                : ContentFilterService.instance.isQueryNsfw(_searchController.text.trim())
+                    ? const Center(
+                        child: Padding(
+                          padding: EdgeInsets.all(24.0),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.shield, color: Color(0xFFE50914), size: 54),
+                              SizedBox(height: 14),
+                              Text(
+                                "Search Restricted",
+                                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
+                              ),
+                              SizedBox(height: 6),
+                              Text(
+                                "Adult and explicit searches are blocked by Family Safe filter.",
+                                textAlign: TextAlign.center,
+                                style: TextStyle(color: Colors.white54, fontSize: 13),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )
                 : _searchResults.isNotEmpty
                     ? _buildSearchResults()
                     : _searchController.text.isNotEmpty

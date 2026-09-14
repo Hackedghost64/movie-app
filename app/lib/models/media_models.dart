@@ -6,6 +6,7 @@ class MediaItem {
   final String? rating;
   final String? description;
   final int? type; // 1 = Movie, 2 = Series
+  final String? genre;
 
   MediaItem({
     required this.id,
@@ -15,6 +16,7 @@ class MediaItem {
     this.rating,
     this.description,
     this.type,
+    this.genre,
   });
 
   factory MediaItem.fromJson(Map<String, dynamic> json) {
@@ -29,6 +31,7 @@ class MediaItem {
     final yearVal = json['year'] ?? json['releaseYear'] ?? json['releaseDate'];
     final yearStr = yearVal?.toString().substring(0, yearVal.toString().length >= 4 ? 4 : null);
     final ratingVal = json['score'] ?? json['rating'] ?? json['imdbScore'];
+    final genreVal = json['genre'] ?? json['genres'] ?? json['category'] ?? json['tag'] ?? json['classify'];
 
     return MediaItem(
       id: (json['id'] ?? json['subjectId'] ?? '').toString(),
@@ -38,6 +41,7 @@ class MediaItem {
       rating: ratingVal?.toString(),
       description: (json['description'] ?? json['synopsis'] ?? json['desc'] ?? '').toString(),
       type: json['subjectType'] as int? ?? json['type'] as int?,
+      genre: genreVal?.toString(),
     );
   }
 }

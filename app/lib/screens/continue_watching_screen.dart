@@ -124,6 +124,7 @@ class _ContinueWatchingScreenState extends State<ContinueWatchingScreen> {
           stream: stream,
           availableStreams: [stream],
           isSeries: progress.season > 0,
+          initialPosition: Duration(milliseconds: progress.positionMs),
         ),
       ),
     );

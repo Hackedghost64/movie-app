@@ -22,6 +22,7 @@ class NetflixPlayerScreen extends StatefulWidget {
   final StreamOption stream;
   final List<StreamOption> availableStreams;
   final bool isSeries;
+  final Duration? initialPosition;
 
   const NetflixPlayerScreen({
     super.key,
@@ -34,6 +35,7 @@ class NetflixPlayerScreen extends StatefulWidget {
     required this.stream,
     required this.availableStreams,
     required this.isSeries,
+    this.initialPosition,
   });
 
   @override
@@ -53,6 +55,13 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
   bool _showControls = true;
   bool _isLocked = false;
   Timer? _hideTimer;
+
+  // ── Resume banner ─────────────────────────────────────────────────────────
+  String? _resumeBannerText;
+  Timer? _resumeBannerTimer;
+
+  // ── TV Remote Focus ───────────────────────────────────────────────────────
+  final FocusNode _tvPlayerFocusNode = FocusNode();
 
   // ── Playback speed ────────────────────────────────────────────────────────
   double _playbackSpeed = 1.0;
@@ -110,7 +119,31 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
     super.initState();
     _currentStream = widget.stream;
     _enterImmersive();
-    _initPlayer();
+
+    // Determine initial playback point
+    Duration? seekTarget = widget.initialPosition;
+    if (seekTarget == null) {
+      final saved = StorageService.instance.getWatchProgress(widget.subjectId);
+      if (saved != null &&
+          saved.season == widget.season &&
+          saved.episode == widget.episode &&
+          saved.positionMs > 2000) {
+        if (saved.durationMs == 0 || saved.positionMs < (saved.durationMs - 15000)) {
+          seekTarget = Duration(milliseconds: saved.positionMs);
+        }
+      }
+    }
+
+    if (seekTarget != null && seekTarget > Duration.zero) {
+      final m = seekTarget.inMinutes;
+      final s = seekTarget.inSeconds.remainder(60).toString().padLeft(2, '0');
+      _resumeBannerText = 'Resumed from $m:$s';
+      _resumeBannerTimer = Timer(const Duration(seconds: 3), () {
+        if (mounted) setState(() => _resumeBannerText = null);
+      });
+    }
+
+    _initPlayer(seekTo: seekTarget);
   }
 
   @override
@@ -119,6 +152,8 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
     _hideTimer?.cancel();
     _rippleTimer?.cancel();
     _saveTimer?.cancel();
+    _resumeBannerTimer?.cancel();
+    _tvPlayerFocusNode.dispose();
     _controller?.removeListener(_onVideoEvent);
     _controller?.dispose();
     _exitImmersive();
@@ -193,12 +228,10 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
       }
 
       await ctrl.setPlaybackSpeed(_playbackSpeed);
-      await ctrl.play();
-
-      // IMPORTANT 3 — restore position after resolution switch
       if (seekTo != null && seekTo > Duration.zero) {
         await ctrl.seekTo(seekTo);
       }
+      await ctrl.play();
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -665,6 +698,49 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
     }
   }
 
+  KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+
+    final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.select ||
+        key == LogicalKeyboardKey.enter ||
+        key == LogicalKeyboardKey.numpadEnter ||
+        key == LogicalKeyboardKey.space ||
+        key == LogicalKeyboardKey.mediaPlayPause ||
+        key == LogicalKeyboardKey.mediaPlay ||
+        key == LogicalKeyboardKey.mediaPause) {
+      if (!_showControls) {
+        _onUserInteraction();
+      } else {
+        _togglePlayPause();
+      }
+      return KeyEventResult.handled;
+    }
+
+    if (key == LogicalKeyboardKey.arrowLeft || key == LogicalKeyboardKey.mediaRewind) {
+      _doubleTapSeek(forward: false);
+      return KeyEventResult.handled;
+    }
+
+    if (key == LogicalKeyboardKey.arrowRight || key == LogicalKeyboardKey.mediaFastForward) {
+      _doubleTapSeek(forward: true);
+      return KeyEventResult.handled;
+    }
+
+    if (key == LogicalKeyboardKey.arrowUp || key == LogicalKeyboardKey.arrowDown) {
+      _onUserInteraction();
+      return KeyEventResult.handled;
+    }
+
+    if (key == LogicalKeyboardKey.escape) {
+      _saveProgress();
+      Navigator.of(context).pop();
+      return KeyEventResult.handled;
+    }
+
+    return KeyEventResult.ignored;
+  }
+
   // ─────────────────────────────────────────────────────────────────────────
   // Build
   // ─────────────────────────────────────────────────────────────────────────
@@ -672,37 +748,71 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
   @override
   Widget build(BuildContext context) {
     // IMPORTANT 5 — save progress on Android hardware back / swipe-back
-    return PopScope(
-      onPopInvokedWithResult: (didPop, _) {
-        if (didPop) _saveProgress();
-      },
-      child: Scaffold(
-        backgroundColor: Colors.black,
-        body: SafeArea(
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              // ── Video ────────────────────────────────────────────────────
-              _buildVideoSurface(),
+    return Focus(
+      autofocus: true,
+      focusNode: _tvPlayerFocusNode,
+      onKeyEvent: _handleKeyEvent,
+      child: PopScope(
+        onPopInvokedWithResult: (didPop, _) {
+          if (didPop) _saveProgress();
+        },
+        child: Scaffold(
+          backgroundColor: Colors.black,
+          body: SafeArea(
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                // ── Video ────────────────────────────────────────────────────
+                _buildVideoSurface(),
 
-              // ── Double-tap zones ─────────────────────────────────────────
-              _buildDoubleTapZones(),
+                // ── Double-tap zones ─────────────────────────────────────────
+                _buildDoubleTapZones(),
 
-              // ── Ripple icons ─────────────────────────────────────────────
-              _buildRippleOverlays(),
+                // ── Ripple icons ─────────────────────────────────────────────
+                _buildRippleOverlays(),
 
-              // ── Buffering indicator ──────────────────────────────────────
-              if (_isBuffering && !_isInitializing)
-                const Center(
-                  child: CircularProgressIndicator(color: _accentRed),
-                ),
+                // ── Buffering indicator ──────────────────────────────────────
+                if (_isBuffering && !_isInitializing)
+                  const Center(
+                    child: CircularProgressIndicator(color: _accentRed),
+                  ),
 
-              // ── Error view ───────────────────────────────────────────────
-              if (_hasError) _buildErrorView(),
+                // ── Error view ───────────────────────────────────────────────
+                if (_hasError) _buildErrorView(),
 
-              // ── Overlay controls ─────────────────────────────────────────
-              if (!_hasError) _buildOverlay(),
-            ],
+                // ── Overlay controls ─────────────────────────────────────────
+                if (!_hasError) _buildOverlay(),
+
+                // ── Resume badge overlay ─────────────────────────────────────
+                if (_resumeBannerText != null)
+                  Positioned(
+                    top: 24,
+                    left: 0,
+                    right: 0,
+                    child: Center(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xE6E50914),
+                          borderRadius: BorderRadius.circular(20),
+                          boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 8)],
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.history, color: Colors.white, size: 18),
+                            const SizedBox(width: 8),
+                            Text(
+                              _resumeBannerText!,
+                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
       ),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'services/moviebox_api.dart';
 import 'services/storage_service.dart';
+import 'services/content_filter_service.dart';
 import 'screens/main_nav_screen.dart';
 
 void main() async {
@@ -14,6 +15,11 @@ void main() async {
     await StorageService.instance.init();
   } catch (e) {
     debugPrint("Failed to initialize StorageService: $e");
+  }
+  try {
+    await ContentFilterService.instance.init();
+  } catch (e) {
+    debugPrint("Failed to initialize ContentFilterService: $e");
   }
   runApp(const MBXApp());
 }

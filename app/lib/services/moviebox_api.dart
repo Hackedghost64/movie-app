@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/media_models.dart';
+import 'content_filter_service.dart';
 
 class MovieBoxApi {
   static final MovieBoxApi instance = MovieBoxApi._();
@@ -300,10 +301,11 @@ class MovieBoxApi {
   // ---------------- Public API Methods ----------------
 
   Future<List<MediaItem>> search(String query) async {
+    List<MediaItem> rawItems = [];
     if (useGateway) {
       final res = await _requestGateway("/search", params: {"q": query});
       final results = res["normalized"]?["results"] as List? ?? res["results"] as List? ?? [];
-      return results.map((e) => MediaItem.fromJson(e as Map<String, dynamic>)).toList();
+      rawItems = results.map((e) => MediaItem.fromJson(e as Map<String, dynamic>)).toList();
     } else {
       final res = await _requestDirect(
         "POST",
@@ -339,15 +341,17 @@ class MovieBoxApi {
           }
         }
       }
-      return items;
+      rawItems = items;
     }
+    return ContentFilterService.instance.filterMediaList(rawItems);
   }
 
   Future<List<MediaItem>> getTopRank() async {
+    List<MediaItem> rawItems = [];
     if (useGateway) {
       final res = await _requestGateway("/search/rank");
       final list = res["data"]?["list"] as List? ?? [];
-      return list.map((e) => MediaItem.fromJson(e as Map<String, dynamic>)).toList();
+      rawItems = list.map((e) => MediaItem.fromJson(e as Map<String, dynamic>)).toList();
     } else {
       final res = await _requestDirect("GET", "/wefeed-mobile-bff/subject-api/search-rank/v2");
       final List<MediaItem> items = [];
@@ -393,8 +397,34 @@ class MovieBoxApi {
           }
         }
       }
-      return items;
+      rawItems = items;
     }
+    return ContentFilterService.instance.filterMediaList(rawItems);
+  }
+
+  Future<List<MediaItem>> getTopMovies() async {
+    final all = await getTopRank();
+    return all.where((item) => item.type != 2).toList();
+  }
+
+  Future<List<MediaItem>> getTopSeries() async {
+    final all = await getTopRank();
+    return all.where((item) => item.type == 2).toList();
+  }
+
+  Future<List<MediaItem>> getByCategory(String category) async {
+    if (category == 'All') {
+      return await getTopRank();
+    }
+    if (category == 'Movies') {
+      return await getTopMovies();
+    }
+    if (category == 'TV Series') {
+      return await getTopSeries();
+    }
+    // Search by category / genre keyword
+    final results = await search(category);
+    return ContentFilterService.instance.filterMediaList(results);
   }
 
   Future<Map<String, dynamic>> getDetails(String subjectId) async {

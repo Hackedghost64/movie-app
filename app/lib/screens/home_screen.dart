@@ -3,9 +3,11 @@ import '../models/media_models.dart';
 import '../models/storage_models.dart';
 import '../services/moviebox_api.dart';
 import '../services/storage_service.dart';
+import '../services/content_filter_service.dart';
 import 'continue_watching_screen.dart';
 import 'detail_screen.dart';
 import 'downloads_screen.dart';
+import 'netflix_player_screen.dart';
 import 'watchlist_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -24,6 +26,24 @@ class _HomeScreenState extends State<HomeScreen> {
 
   List<WatchProgress> _continueWatching = [];
   List<WatchlistItem> _myList = [];
+
+  String _selectedCategory = "All";
+  final Map<String, List<MediaItem>> _categoryCache = {};
+  static const List<String> _categories = [
+    "All",
+    "Movies",
+    "TV Series",
+    "Action",
+    "Comedy",
+    "Animation",
+    "Sci-Fi",
+    "Horror",
+    "Drama",
+    "Thriller",
+    "Romance",
+    "Crime",
+    "Documentary",
+  ];
 
   @override
   void initState() {
@@ -59,8 +79,41 @@ class _HomeScreenState extends State<HomeScreen> {
       } else {
         _trending = items;
       }
+      _categoryCache["All"] = _trending;
     } catch (e) {
       debugPrint("Error loading trending: $e");
+    } finally {
+      if (mounted) setState(() => _isLoadingTrending = false);
+    }
+  }
+
+  Future<void> _selectCategory(String category) async {
+    if (_selectedCategory == category && !_isLoadingTrending) return;
+    setState(() {
+      _selectedCategory = category;
+      _isLoadingTrending = true;
+    });
+
+    if (_categoryCache.containsKey(category)) {
+      if (mounted) {
+        setState(() {
+          _trending = _categoryCache[category]!;
+          _isLoadingTrending = false;
+        });
+      }
+      return;
+    }
+
+    try {
+      final items = await MovieBoxApi.instance.getByCategory(category);
+      _categoryCache[category] = items;
+      if (mounted) {
+        setState(() {
+          _trending = items;
+        });
+      }
+    } catch (e) {
+      debugPrint("Error loading category $category: $e");
     } finally {
       if (mounted) setState(() => _isLoadingTrending = false);
     }
@@ -172,6 +225,34 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ),
                     ],
+                    const SizedBox(height: 12),
+                    const Divider(color: Colors.white24),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      value: ContentFilterService.instance.isFilterEnabled,
+                      // ignore: deprecated_member_use
+                      activeColor: const Color(0xFFE50914),
+                      title: const Row(
+                        children: [
+                          Icon(Icons.shield, color: Color(0xFFE50914), size: 18),
+                          SizedBox(width: 8),
+                          Text(
+                            "Family Safe (NSFW Filter)",
+                            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                          ),
+                        ],
+                      ),
+                      subtitle: const Text(
+                        "Strictly blocks adult, 18+, and explicit titles across the app. Always ON by default for family safety.",
+                        style: TextStyle(color: Colors.white54, fontSize: 12),
+                      ),
+                      onChanged: (val) async {
+                        await ContentFilterService.instance.setFilterEnabled(val);
+                        setDialogState(() {});
+                        _categoryCache.clear();
+                        _loadTrending();
+                      },
+                    ),
                     // Credits section
                     Container(
                       padding: const EdgeInsets.symmetric(vertical: 16),
@@ -369,10 +450,43 @@ class _HomeScreenState extends State<HomeScreen> {
                         final progress = _continueWatching[i];
                         return _ContinueWatchingCard(
                           progress: progress,
-                          onTap: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(builder: (_) => const ContinueWatchingScreen()),
-                          ),
+                          onTap: () {
+                            if (progress.streamUrl != null) {
+                              final stream = StreamOption(
+                                url: progress.streamUrl!,
+                                kind: progress.streamUrl!.contains('.m3u8')
+                                    ? 'hls'
+                                    : progress.streamUrl!.contains('.mpd')
+                                        ? 'dash'
+                                        : 'mp4',
+                                resolution: 'Saved',
+                                cookie: progress.streamCookie,
+                                bypassedDecoy: true,
+                              );
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => NetflixPlayerScreen(
+                                    subjectId: progress.subjectId,
+                                    title: progress.title,
+                                    poster: progress.poster,
+                                    season: progress.season,
+                                    episode: progress.episode,
+                                    episodeTitle: progress.episodeTitle,
+                                    stream: stream,
+                                    availableStreams: [stream],
+                                    isSeries: progress.season > 0,
+                                    initialPosition: Duration(milliseconds: progress.positionMs),
+                                  ),
+                                ),
+                              );
+                            } else {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(builder: (_) => const ContinueWatchingScreen()),
+                              );
+                            }
+                          },
                         );
                       },
                     ),
@@ -410,14 +524,42 @@ class _HomeScreenState extends State<HomeScreen> {
                   const SizedBox(height: 16),
                 ],
 
-                // Trending header
-                const Row(
+                // Categories Selector Bar
+                const Text(
+                  "Categories",
+                  style: TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  height: 38,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: _categories.length,
+                    separatorBuilder: (context, index) => const SizedBox(width: 8),
+                    itemBuilder: (ctx, i) {
+                      final cat = _categories[i];
+                      return _CategoryChip(
+                        label: cat,
+                        isSelected: _selectedCategory == cat,
+                        onTap: () => _selectCategory(cat),
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 20),
+
+                // Feed Section Header
+                Row(
                   children: [
-                    Icon(Icons.local_fire_department, color: Color(0xFFE50914), size: 20),
-                    SizedBox(width: 6),
+                    Icon(
+                      _selectedCategory == "All" ? Icons.local_fire_department : Icons.movie_filter,
+                      color: const Color(0xFFE50914),
+                      size: 20,
+                    ),
+                    const SizedBox(width: 6),
                     Text(
-                      "Trending & Popular",
-                      style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                      _selectedCategory == "All" ? "Trending & Popular" : _selectedCategory,
+                      style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
                     ),
                   ],
                 ),
@@ -533,6 +675,132 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
+// ─── TV Remote Focusable Wrapper ─────────────────────────────────────────────
+
+class _TvFocusableCard extends StatefulWidget {
+  final Widget child;
+  final VoidCallback onTap;
+  final double borderRadius;
+
+  const _TvFocusableCard({
+    required this.child,
+    required this.onTap,
+    this.borderRadius = 8,
+  });
+
+  @override
+  State<_TvFocusableCard> createState() => _TvFocusableCardState();
+}
+
+class _TvFocusableCardState extends State<_TvFocusableCard> {
+  bool _isFocused = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return FocusableActionDetector(
+      onFocusChange: (f) => setState(() => _isFocused = f),
+      actions: {
+        ActivateIntent: CallbackAction<ActivateIntent>(
+          onInvoke: (_) {
+            widget.onTap();
+            return null;
+          },
+        ),
+      },
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          transform: _isFocused ? Matrix4.diagonal3Values(1.05, 1.05, 1.0) : Matrix4.identity(),
+          transformAlignment: Alignment.center,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(widget.borderRadius),
+            border: _isFocused
+                ? Border.all(color: const Color(0xFFE50914), width: 3.0)
+                : Border.all(color: Colors.transparent, width: 3.0),
+            boxShadow: _isFocused
+                ? const [
+                    BoxShadow(color: Color(0xAA000000), blurRadius: 10, spreadRadius: 2),
+                    BoxShadow(color: Color(0x88E50914), blurRadius: 12, spreadRadius: 2),
+                  ]
+                : null,
+          ),
+          child: widget.child,
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Category Chip with TV Focus ─────────────────────────────────────────────
+
+class _CategoryChip extends StatefulWidget {
+  final String label;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  const _CategoryChip({
+    required this.label,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  @override
+  State<_CategoryChip> createState() => _CategoryChipState();
+}
+
+class _CategoryChipState extends State<_CategoryChip> {
+  bool _isFocused = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final active = widget.isSelected || _isFocused;
+    return FocusableActionDetector(
+      onFocusChange: (f) => setState(() => _isFocused = f),
+      actions: {
+        ActivateIntent: CallbackAction<ActivateIntent>(
+          onInvoke: (_) {
+            widget.onTap();
+            return null;
+          },
+        ),
+      },
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          decoration: BoxDecoration(
+            color: widget.isSelected
+                ? const Color(0xFFE50914)
+                : (_isFocused ? const Color(0xFF333333) : const Color(0xFF222222)),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: _isFocused
+                  ? Colors.white
+                  : (widget.isSelected ? const Color(0xFFE50914) : Colors.white24),
+              width: _isFocused ? 2 : 1,
+            ),
+            boxShadow: _isFocused
+                ? const [
+                    BoxShadow(color: Color(0x66E50914), blurRadius: 8, spreadRadius: 1),
+                  ]
+                : null,
+          ),
+          child: Text(
+            widget.label,
+            style: TextStyle(
+              color: active ? Colors.white : Colors.white70,
+              fontSize: 12,
+              fontWeight: active ? FontWeight.bold : FontWeight.normal,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 // ─── Continue Watching card ────────────────────────────────────────────────────
 
 class _ContinueWatchingCard extends StatelessWidget {
@@ -543,11 +811,12 @@ class _ContinueWatchingCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return _TvFocusableCard(
       onTap: onTap,
+      borderRadius: 8,
       child: Container(
         width: 100,
-        margin: const EdgeInsets.only(right: 10),
+        margin: const EdgeInsets.only(right: 6),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -556,7 +825,7 @@ class _ContinueWatchingCard extends StatelessWidget {
               child: Stack(
                 children: [
                   SizedBox(
-                    width: 80,
+                    width: 94,
                     height: 110,
                     child: progress.poster != null
                         ? Image.network(
@@ -611,18 +880,19 @@ class _WatchlistCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return _TvFocusableCard(
       onTap: onTap,
+      borderRadius: 8,
       child: Container(
         width: 110,
-        margin: const EdgeInsets.only(right: 10),
+        margin: const EdgeInsets.only(right: 6),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             ClipRRect(
               borderRadius: BorderRadius.circular(8),
               child: SizedBox(
-                width: 100,
+                width: 104,
                 height: 145,
                 child: item.poster != null
                     ? Image.network(
@@ -663,10 +933,11 @@ class _MediaCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return _TvFocusableCard(
       onTap: () {
         Navigator.push(context, MaterialPageRoute(builder: (_) => DetailScreen(item: item)));
       },
+      borderRadius: 8,
       child: ClipRRect(
         borderRadius: BorderRadius.circular(8),
         child: Container(

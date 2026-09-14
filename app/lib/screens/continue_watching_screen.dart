@@ -191,13 +191,18 @@ class _ContinueWatchingScreenState extends State<ContinueWatchingScreen> {
   }
 
   Widget _buildList() {
-    return ListView.builder(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      itemCount: _items.length,
-      itemBuilder: (context, index) {
-        final progress = _items[index];
-        return _buildCard(progress);
-      },
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 850),
+        child: ListView.builder(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          itemCount: _items.length,
+          itemBuilder: (context, index) {
+            final progress = _items[index];
+            return _buildCard(progress);
+          },
+        ),
+      ),
     );
   }
 

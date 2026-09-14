@@ -110,32 +110,371 @@ class _DetailScreenState extends State<DetailScreen> {
     );
   }
 
+  Widget _buildMetadataRow(bool isSeries) {
+    return Row(
+      children: [
+        if (widget.item.year != null)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: Colors.white12,
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Text(widget.item.year!, style: const TextStyle(color: Colors.white70, fontSize: 12)),
+          ),
+        const SizedBox(width: 8),
+        if (widget.item.rating != null)
+          Row(
+            children: [
+              const Icon(Icons.star, color: Colors.amber, size: 16),
+              const SizedBox(width: 4),
+              Text(widget.item.rating!, style: const TextStyle(color: Colors.amber, fontWeight: FontWeight.bold)),
+            ],
+          ),
+        const SizedBox(width: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: const Color(0x33E50914),
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: Text(
+            isSeries ? "TV SERIES" : "MOVIE",
+            style: const TextStyle(color: Color(0xFFE50914), fontWeight: FontWeight.bold, fontSize: 11),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildActionButtons(bool isSeries) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (!isSeries) ...[
+          Row(
+            children: [
+              Expanded(
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFE50914),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  onPressed: () => _onPlayTapped(),
+                  icon: const Icon(Icons.play_arrow),
+                  label: const Text("Watch Movie", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                ),
+              ),
+              const SizedBox(width: 12),
+              IconButton.filledTonal(
+                style: IconButton.styleFrom(
+                  backgroundColor: Colors.white12,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.all(14),
+                ),
+                onPressed: () => _onDownloadTapped(),
+                icon: const Icon(Icons.download),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+        ],
+        SizedBox(
+          width: double.infinity,
+          child: OutlinedButton.icon(
+            style: OutlinedButton.styleFrom(
+              foregroundColor: Colors.white,
+              side: const BorderSide(color: Colors.white54),
+              padding: const EdgeInsets.symmetric(vertical: 12),
+            ),
+            onPressed: () async {
+              await StorageService.instance.toggleWatchlist(widget.item);
+              if (mounted) {
+                setState(() => _inWatchlist = !_inWatchlist);
+              }
+            },
+            icon: Icon(_inWatchlist ? Icons.check : Icons.add),
+            label: Text(_inWatchlist ? "✓ In My List" : "+ My List"),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildEpisodesSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text("Episodes", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 12),
+        if (_seasons.length > 1)
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: _seasons.map((s) {
+                final isSelected = s.seasonNumber == _selectedSeason;
+                return Padding(
+                  padding: const EdgeInsets.only(right: 8.0),
+                  child: ChoiceChip(
+                    label: Text(s.title),
+                    selected: isSelected,
+                    selectedColor: const Color(0xFFE50914),
+                    backgroundColor: const Color(0xFF252525),
+                    labelStyle: TextStyle(
+                      color: isSelected ? Colors.white : Colors.white70,
+                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                    ),
+                    onSelected: (_) => _loadEpisodes(s.seasonNumber),
+                  ),
+                );
+              }).toList(),
+            ),
+          ),
+        const SizedBox(height: 12),
+        if (_isLoadingEpisodes)
+          const Center(child: Padding(padding: EdgeInsets.all(24.0), child: CircularProgressIndicator(color: Color(0xFFE50914))))
+        else if (_episodes.isEmpty)
+          const Padding(
+            padding: EdgeInsets.all(16.0),
+            child: Text("No episodes found for this season.", style: TextStyle(color: Colors.white54)),
+          )
+        else
+          ListView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: _episodes.length,
+            itemBuilder: (ctx, i) {
+              final ep = _episodes[i];
+              return Card(
+                color: const Color(0xFF1E1E1E),
+                margin: const EdgeInsets.only(bottom: 8),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                child: ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: const Color(0x33E50914),
+                    child: Text(
+                      "${ep.episodeNumber}",
+                      style: const TextStyle(color: Color(0xFFE50914), fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  title: Text(ep.title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14)),
+                  subtitle: ep.description?.isNotEmpty == true
+                      ? Text(ep.description!, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white54, fontSize: 12))
+                      : null,
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.download, color: Colors.white70, size: 20),
+                        onPressed: () => _onDownloadTapped(season: ep.seasonNumber, episode: ep.episodeNumber, episodeTitle: ep.title),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.play_circle_fill, color: Color(0xFFE50914), size: 28),
+                        onPressed: () => _onPlayTapped(season: ep.seasonNumber, episode: ep.episodeNumber, episodeTitle: ep.title),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+      ],
+    );
+  }
+
+  Widget _buildWideLayout(BuildContext context, String? poster, bool isSeries) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF0F0F0F),
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          onPressed: () => Navigator.pop(context),
+        ),
+      ),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 1100),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Proportionate vertical poster card
+                    Container(
+                      width: 220,
+                      height: 330,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Colors.black54,
+                            blurRadius: 16,
+                            offset: Offset(0, 8),
+                          ),
+                        ],
+                        border: Border.all(color: Colors.white12, width: 1),
+                      ),
+                      clipBehavior: Clip.antiAlias,
+                      child: poster != null
+                          ? Image.network(
+                              poster,
+                              fit: BoxFit.cover,
+                              cacheWidth: 440,
+                              errorBuilder: (context, error, stackTrace) => Container(
+                                color: const Color(0xFF1E1E1E),
+                                child: const Center(child: Icon(Icons.movie, color: Colors.white24, size: 48)),
+                              ),
+                            )
+                          : Container(
+                              color: const Color(0xFF1E1E1E),
+                              child: const Center(child: Icon(Icons.movie, color: Colors.white24, size: 48)),
+                            ),
+                    ),
+                    const SizedBox(width: 28),
+                    // Details column
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            widget.item.title,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 28,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          _buildMetadataRow(isSeries),
+                          const SizedBox(height: 20),
+                          _buildActionButtons(isSeries),
+                          const SizedBox(height: 20),
+                          Text(
+                            widget.item.description?.isNotEmpty == true
+                                ? widget.item.description!
+                                : (_details?['desc'] ?? _details?['introduce'] ?? "No synopsis available."),
+                            style: const TextStyle(color: Colors.white70, fontSize: 14, height: 1.5),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                if (isSeries) ...[
+                  const SizedBox(height: 32),
+                  _buildEpisodesSection(),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMobileLayout(BuildContext context, String? poster, bool isSeries) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF0F0F0F),
+      body: CustomScrollView(
+        slivers: [
+          SliverAppBar(
+            expandedHeight: 320,
+            pinned: true,
+            backgroundColor: const Color(0xFF1E1E1E),
+            flexibleSpace: FlexibleSpaceBar(
+              title: Text(
+                widget.item.title,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  shadows: [Shadow(color: Colors.black, blurRadius: 8)],
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              background: Stack(
+                fit: StackFit.expand,
+                children: [
+                  if (poster != null)
+                    Image.network(
+                      poster,
+                      fit: BoxFit.cover,
+                      cacheWidth: 600,
+                      errorBuilder: (context, error, stackTrace) => Container(color: Colors.grey[900]),
+                    )
+                  else
+                    Container(color: Colors.grey[900]),
+                  const DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [Colors.transparent, Colors.black87, Colors.black],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildMetadataRow(isSeries),
+                  const SizedBox(height: 16),
+                  _buildActionButtons(isSeries),
+                  const SizedBox(height: 16),
+                  Text(
+                    widget.item.description?.isNotEmpty == true
+                        ? widget.item.description!
+                        : (_details?['desc'] ?? _details?['introduce'] ?? "No synopsis available."),
+                    style: const TextStyle(color: Colors.white70, fontSize: 14, height: 1.4),
+                  ),
+                  const SizedBox(height: 24),
+                  if (isSeries) _buildEpisodesSection(),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (ContentFilterService.instance.isNsfw(widget.item)) {
       return Scaffold(
         backgroundColor: const Color(0xFF0F0F0F),
-        appBar: AppBar(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-        ),
+        appBar: AppBar(backgroundColor: Colors.transparent),
         body: const Center(
           child: Padding(
             padding: EdgeInsets.all(24.0),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.shield, color: Color(0xFFE50914), size: 64),
-                SizedBox(height: 16),
+                Icon(Icons.shield, color: Color(0xFFE50914), size: 54),
+                SizedBox(height: 14),
                 Text(
                   "Content Restricted",
-                  style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
                 ),
-                SizedBox(height: 8),
+                SizedBox(height: 6),
                 Text(
-                  "This title is blocked by the Family Safe filter.",
+                  "This title is blocked by Family Safe filter.",
                   textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.white54, fontSize: 14),
+                  style: TextStyle(color: Colors.white54, fontSize: 13),
                 ),
               ],
             ),
@@ -147,243 +486,19 @@ class _DetailScreenState extends State<DetailScreen> {
     final poster = widget.item.poster;
     final type = _details?['subjectType'] as int? ?? widget.item.type ?? 1;
     final isSeries = type == 2 && _seasons.isNotEmpty;
+    final isWide = MediaQuery.of(context).size.width >= 720;
 
-    return Scaffold(
-      backgroundColor: const Color(0xFF0F0F0F),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: Color(0xFFE50914)))
-          : CustomScrollView(
-              slivers: [
-                SliverAppBar(
-                  expandedHeight: 320,
-                  pinned: true,
-                  backgroundColor: const Color(0xFF1E1E1E),
-                  flexibleSpace: FlexibleSpaceBar(
-                    title: Text(
-                      widget.item.title,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        shadows: [Shadow(color: Colors.black, blurRadius: 8)],
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    background: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        if (poster != null)
-                          Image.network(
-                            poster,
-                            fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) => Container(color: Colors.grey[900]),
-                          )
-                        else
-                          Container(color: Colors.grey[900]),
-                        const DecoratedBox(
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topCenter,
-                              end: Alignment.bottomCenter,
-                              colors: [Colors.transparent, Colors.black87, Colors.black],
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Metadata row
-                        Row(
-                          children: [
-                            if (widget.item.year != null)
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                decoration: BoxDecoration(
-                                  color: Colors.white12,
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                                child: Text(widget.item.year!, style: const TextStyle(color: Colors.white70, fontSize: 12)),
-                              ),
-                            const SizedBox(width: 8),
-                            if (widget.item.rating != null)
-                              Row(
-                                children: [
-                                  const Icon(Icons.star, color: Colors.amber, size: 16),
-                                  const SizedBox(width: 4),
-                                  Text(widget.item.rating!, style: const TextStyle(color: Colors.amber, fontWeight: FontWeight.bold)),
-                                ],
-                              ),
-                            const SizedBox(width: 8),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: const Color(0x33E50914),
-                                borderRadius: BorderRadius.circular(4),
-                              ),
-                              child: Text(
-                                isSeries ? "TV SERIES" : "MOVIE",
-                                style: const TextStyle(color: Color(0xFFE50914), fontWeight: FontWeight.bold, fontSize: 11),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
+    if (_isLoading) {
+      return Scaffold(
+        backgroundColor: const Color(0xFF0F0F0F),
+        appBar: AppBar(backgroundColor: Colors.transparent),
+        body: const Center(child: CircularProgressIndicator(color: Color(0xFFE50914))),
+      );
+    }
 
-                        // Action buttons for movies
-                        if (!isSeries) ...[
-                          Row(
-                            children: [
-                              Expanded(
-                                child: ElevatedButton.icon(
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: const Color(0xFFE50914),
-                                    foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(vertical: 14),
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                  ),
-                                  onPressed: () => _onPlayTapped(),
-                                  icon: const Icon(Icons.play_arrow),
-                                  label: const Text("Watch Movie", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              IconButton.filledTonal(
-                                style: IconButton.styleFrom(
-                                  backgroundColor: Colors.white12,
-                                  foregroundColor: Colors.white,
-                                  padding: const EdgeInsets.all(14),
-                                ),
-                                onPressed: () => _onDownloadTapped(),
-                                icon: const Icon(Icons.download),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                        ],
-
-                        SizedBox(
-                          width: double.infinity,
-                          child: OutlinedButton.icon(
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: Colors.white,
-                              side: const BorderSide(color: Colors.white54),
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                            ),
-                            onPressed: () async {
-                              await StorageService.instance.toggleWatchlist(widget.item);
-                              if (mounted) {
-                                setState(() => _inWatchlist = !_inWatchlist);
-                              }
-                            },
-                            icon: Icon(_inWatchlist ? Icons.check : Icons.add),
-                            label: Text(_inWatchlist ? "✓ In My List" : "+ My List"),
-                          ),
-                        ),
-
-                        const SizedBox(height: 16),
-                        // Overview
-                        Text(
-                          widget.item.description?.isNotEmpty == true
-                              ? widget.item.description!
-                              : (_details?['desc'] ?? _details?['introduce'] ?? "No synopsis available."),
-                          style: const TextStyle(color: Colors.white70, fontSize: 14, height: 1.4),
-                        ),
-                        const SizedBox(height: 24),
-
-                        // Seasons & Episodes Section
-                        if (isSeries) ...[
-                          const Text("Episodes", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-                          const SizedBox(height: 12),
-
-                          // Season selector chips
-                          if (_seasons.length > 1)
-                            SingleChildScrollView(
-                              scrollDirection: Axis.horizontal,
-                              child: Row(
-                                children: _seasons.map((s) {
-                                  final isSelected = s.seasonNumber == _selectedSeason;
-                                  return Padding(
-                                    padding: const EdgeInsets.only(right: 8.0),
-                                    child: ChoiceChip(
-                                      label: Text(s.title),
-                                      selected: isSelected,
-                                      selectedColor: const Color(0xFFE50914),
-                                      backgroundColor: const Color(0xFF252525),
-                                      labelStyle: TextStyle(
-                                        color: isSelected ? Colors.white : Colors.white70,
-                                        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                                      ),
-                                      onSelected: (_) => _loadEpisodes(s.seasonNumber),
-                                    ),
-                                  );
-                                }).toList(),
-                              ),
-                            ),
-                          const SizedBox(height: 12),
-
-                          // Episode List
-                          if (_isLoadingEpisodes)
-                            const Center(child: Padding(padding: EdgeInsets.all(24.0), child: CircularProgressIndicator(color: Color(0xFFE50914))))
-                          else if (_episodes.isEmpty)
-                            const Padding(
-                              padding: EdgeInsets.all(16.0),
-                              child: Text("No episodes found for this season.", style: TextStyle(color: Colors.white54)),
-                            )
-                          else
-                            ListView.builder(
-                              shrinkWrap: true,
-                              physics: const NeverScrollableScrollPhysics(),
-                              itemCount: _episodes.length,
-                              itemBuilder: (ctx, i) {
-                                final ep = _episodes[i];
-                                return Card(
-                                  color: const Color(0xFF1E1E1E),
-                                  margin: const EdgeInsets.only(bottom: 8),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                  child: ListTile(
-                                    leading: CircleAvatar(
-                                      backgroundColor: const Color(0x33E50914),
-                                      child: Text(
-                                        "${ep.episodeNumber}",
-                                        style: const TextStyle(color: Color(0xFFE50914), fontWeight: FontWeight.bold),
-                                      ),
-                                    ),
-                                    title: Text(ep.title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14)),
-                                    subtitle: ep.description?.isNotEmpty == true
-                                        ? Text(ep.description!, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white54, fontSize: 12))
-                                        : null,
-                                    trailing: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        IconButton(
-                                          icon: const Icon(Icons.download, color: Colors.white70, size: 20),
-                                          onPressed: () => _onDownloadTapped(season: ep.seasonNumber, episode: ep.episodeNumber, episodeTitle: ep.title),
-                                        ),
-                                        IconButton(
-                                          icon: const Icon(Icons.play_circle_fill, color: Color(0xFFE50914), size: 28),
-                                          onPressed: () => _onPlayTapped(season: ep.seasonNumber, episode: ep.episodeNumber, episodeTitle: ep.title),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                );
-                              },
-                            ),
-                        ],
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-    );
+    return isWide
+        ? _buildWideLayout(context, poster, isSeries)
+        : _buildMobileLayout(context, poster, isSeries);
   }
 }
 

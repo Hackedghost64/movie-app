@@ -375,6 +375,7 @@ class _HomeScreenState extends State<HomeScreen> {
             child: TextField(
               controller: _searchController,
               style: const TextStyle(color: Colors.white),
+              onChanged: (_) => setState(() {}),
               onSubmitted: _performSearch,
               decoration: InputDecoration(
                 hintText: "Search movies, series, shows...",
@@ -435,11 +436,21 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  int _getResponsiveColumns(BuildContext context) {
+    final width = MediaQuery.of(context).size.width;
+    if (width < 600) return 3;
+    if (width < 840) return 4;
+    if (width < 1100) return 5;
+    if (width < 1400) return 6;
+    if (width < 1800) return 7;
+    return 8;
+  }
+
   Widget _buildSearchResults() {
     return GridView.builder(
       padding: const EdgeInsets.all(12),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: _getResponsiveColumns(context),
         childAspectRatio: 0.65,
         crossAxisSpacing: 10,
         mainAxisSpacing: 10,
@@ -640,8 +651,8 @@ class _HomeScreenState extends State<HomeScreen> {
           SliverPadding(
             padding: const EdgeInsets.symmetric(horizontal: 12),
             sliver: SliverGrid(
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 3,
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: _getResponsiveColumns(context),
                 childAspectRatio: 0.65,
                 crossAxisSpacing: 10,
                 mainAxisSpacing: 10,
@@ -980,7 +991,7 @@ class _MediaCard extends StatelessWidget {
                     ? Image.network(
                         item.poster!,
                         fit: BoxFit.cover,
-                        cacheWidth: 260,
+                        cacheWidth: 400,
                         errorBuilder: (context, error, stackTrace) => const Center(
                           child: Icon(Icons.movie, color: Colors.white24, size: 36),
                         ),

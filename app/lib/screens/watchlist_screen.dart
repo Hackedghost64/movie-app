@@ -110,6 +110,16 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
     );
   }
 
+  int _getResponsiveColumns(BuildContext context) {
+    final width = MediaQuery.of(context).size.width;
+    if (width < 480) return 2;
+    if (width < 720) return 3;
+    if (width < 1000) return 4;
+    if (width < 1300) return 5;
+    if (width < 1600) return 6;
+    return 7;
+  }
+
   Widget _buildGrid() {
     return CustomScrollView(
       slivers: [
@@ -120,8 +130,8 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
               (context, index) => _buildGridCard(_items[index]),
               childCount: _items.length,
             ),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 2,
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: _getResponsiveColumns(context),
               crossAxisSpacing: 12,
               mainAxisSpacing: 12,
               childAspectRatio: 0.65,
@@ -162,6 +172,7 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
                   ? Image.network(
                       item.poster!,
                       fit: BoxFit.cover,
+                      cacheWidth: 400,
                       errorBuilder: (context, error, stackTrace) => _posterFallback(),
                     )
                   : _posterFallback(),

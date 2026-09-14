@@ -7,7 +7,6 @@ import '../services/storage_service.dart';
 import '../services/content_filter_service.dart';
 import 'continue_watching_screen.dart';
 import 'detail_screen.dart';
-import 'downloads_screen.dart';
 import 'netflix_player_screen.dart';
 import 'watchlist_screen.dart';
 
@@ -19,11 +18,8 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  final TextEditingController _searchController = TextEditingController();
   List<MediaItem> _trending = [];
-  List<MediaItem> _searchResults = [];
   bool _isLoadingTrending = true;
-  bool _isSearching = false;
 
   List<WatchProgress> _continueWatching = [];
   List<WatchlistItem> _myList = [];
@@ -57,7 +53,6 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     StorageService.instance.removeListener(_onStorageChanged);
-    _searchController.dispose();
     super.dispose();
   }
 
@@ -120,40 +115,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _performSearch(String query) async {
-    final q = query.trim();
-    if (q.isEmpty) {
-      setState(() {
-        _searchResults = [];
-        _isSearching = false;
-      });
-      return;
-    }
-    if (ContentFilterService.instance.isQueryNsfw(q)) {
-      setState(() {
-        _searchResults = [];
-        _isSearching = false;
-      });
-      return;
-    }
-    setState(() => _isSearching = true);
-    try {
-      final results = await MovieBoxApi.instance.search(q);
-      if (mounted) {
-        setState(() {
-          _searchResults = results;
-          _isSearching = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() => _isSearching = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Search failed: $e")),
-        );
-      }
-    }
-  }
+
 
   void _showSettingsDialog() {
     final api = MovieBoxApi.instance;
@@ -336,104 +298,50 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF121212),
+      backgroundColor: const Color(0xFF0F0F0F),
       appBar: AppBar(
-        backgroundColor: const Color(0xFF1E1E1E),
+        backgroundColor: const Color(0xFF141414),
+        elevation: 0,
         title: Row(
           children: [
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
-                color: Colors.amber,
+                color: const Color(0xFFE50914),
                 borderRadius: BorderRadius.circular(4),
               ),
-              child: const Text("MBX", style: TextStyle(color: Colors.black, fontWeight: FontWeight.w900, fontSize: 14)),
+              child: const Text(
+                "MBX",
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 13, letterSpacing: 0.8),
+              ),
             ),
             const SizedBox(width: 8),
-            const Text("STREAM", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, letterSpacing: 1.2)),
+            const Text(
+              "STREAM",
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, letterSpacing: 1.2),
+            ),
           ],
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.download, color: Colors.white),
-            tooltip: "Downloads",
-            onPressed: () {
-              Navigator.push(context, MaterialPageRoute(builder: (_) => const DownloadsScreen()));
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.settings, color: Colors.white),
-            tooltip: "Settings",
-            onPressed: _showSettingsDialog,
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          // Search Input
           Padding(
-            padding: const EdgeInsets.all(12.0),
-            child: TextField(
-              controller: _searchController,
-              style: const TextStyle(color: Colors.white),
-              onChanged: (_) => setState(() {}),
-              onSubmitted: _performSearch,
-              decoration: InputDecoration(
-                hintText: "Search movies, series, shows...",
-                hintStyle: const TextStyle(color: Colors.white38),
-                filled: true,
-                fillColor: const Color(0xFF1E1E1E),
-                prefixIcon: const Icon(Icons.search, color: Colors.amber),
-                suffixIcon: _searchController.text.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.clear, color: Colors.white38),
-                        onPressed: () {
-                          _searchController.clear();
-                          _performSearch("");
-                        },
-                      )
-                    : null,
-                contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(30), borderSide: BorderSide.none),
+            padding: const EdgeInsets.only(right: 12),
+            child: TvFocusable(
+              borderRadius: 8,
+              scaleFactor: 1.06,
+              onTap: _showSettingsDialog,
+              child: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.white10,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.settings, color: Colors.white, size: 20),
               ),
             ),
           ),
-
-          // Content Area
-          Expanded(
-            child: _isSearching
-                ? const Center(child: CircularProgressIndicator(color: Color(0xFFE50914)))
-                : ContentFilterService.instance.isQueryNsfw(_searchController.text.trim())
-                    ? const Center(
-                        child: Padding(
-                          padding: EdgeInsets.all(24.0),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.shield, color: Color(0xFFE50914), size: 54),
-                              SizedBox(height: 14),
-                              Text(
-                                "Search Restricted",
-                                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18),
-                              ),
-                              SizedBox(height: 6),
-                              Text(
-                                "Adult and explicit searches are blocked by Family Safe filter.",
-                                textAlign: TextAlign.center,
-                                style: TextStyle(color: Colors.white54, fontSize: 13),
-                              ),
-                            ],
-                          ),
-                        ),
-                      )
-                : _searchResults.isNotEmpty
-                    ? _buildSearchResults()
-                    : _searchController.text.isNotEmpty
-                        ? const Center(child: Text("No titles found.", style: TextStyle(color: Colors.white54)))
-                        : _buildHomeFeed(),
-          ),
         ],
       ),
+      body: _buildHomeFeed(),
     );
   }
 
@@ -447,22 +355,7 @@ class _HomeScreenState extends State<HomeScreen> {
     return 8;
   }
 
-  Widget _buildSearchResults() {
-    return GridView.builder(
-      padding: const EdgeInsets.all(12),
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: _getResponsiveColumns(context),
-        childAspectRatio: 0.65,
-        crossAxisSpacing: 10,
-        mainAxisSpacing: 10,
-      ),
-      itemCount: _searchResults.length,
-      itemBuilder: (ctx, i) {
-        final item = _searchResults[i];
-        return _MediaCard(item: item);
-      },
-    );
-  }
+
 
   Widget _buildHomeFeed() {
     return CustomScrollView(

@@ -62,7 +62,7 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
   Timer? _resumeBannerTimer;
 
   // ── TV Remote Focus ───────────────────────────────────────────────────────
-  final FocusNode _tvPlayerFocusNode = FocusNode();
+  final FocusNode _playPauseFocusNode = FocusNode();
 
   // ── Playback speed ────────────────────────────────────────────────────────
   double _playbackSpeed = 1.0;
@@ -101,7 +101,6 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
 
   // ── Constants ─────────────────────────────────────────────────────────────
   static const _accentRed = Color(0xFFE50914);
-  static const _overlayBg = Colors.black54;
   static const _seekAmount = Duration(seconds: 10);
   static const _hideAfter = Duration(seconds: 4);
 
@@ -154,7 +153,7 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
     _rippleTimer?.cancel();
     _saveTimer?.cancel();
     _resumeBannerTimer?.cancel();
-    _tvPlayerFocusNode.dispose();
+    _playPauseFocusNode.dispose();
     _controller?.removeListener(_onVideoEvent);
     _controller?.dispose();
     _exitImmersive();
@@ -297,9 +296,23 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
   // Controls visibility
   // ─────────────────────────────────────────────────────────────────────────
 
+  void _showControlsOverlay() {
+    setState(() => _showControls = true);
+    _resetHideTimer();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _showControls && _playPauseFocusNode.canRequestFocus) {
+        _playPauseFocusNode.requestFocus();
+      }
+    });
+  }
+
   void _toggleControls() {
-    setState(() => _showControls = !_showControls);
-    if (_showControls) _resetHideTimer();
+    if (_showControls) {
+      setState(() => _showControls = false);
+      _hideTimer?.cancel();
+    } else {
+      _showControlsOverlay();
+    }
   }
 
   void _resetHideTimer() {
@@ -311,9 +324,10 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
 
   void _onUserInteraction() {
     if (!_showControls) {
-      setState(() => _showControls = true);
+      _showControlsOverlay();
+    } else {
+      _resetHideTimer();
     }
-    _resetHideTimer();
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -770,8 +784,7 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
           key == LogicalKeyboardKey.numpadEnter ||
           key == LogicalKeyboardKey.space ||
           key == LogicalKeyboardKey.gameButtonA) {
-        _togglePlayPause();
-        _onUserInteraction();
+        _showControlsOverlay();
         return KeyEventResult.handled;
       }
 
@@ -786,7 +799,7 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
       }
 
       if (key == LogicalKeyboardKey.arrowUp || key == LogicalKeyboardKey.arrowDown) {
-        _onUserInteraction();
+        _showControlsOverlay();
         return KeyEventResult.handled;
       }
 
@@ -817,14 +830,19 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // IMPORTANT 5 — save progress on Android hardware back / swipe-back
-    return Focus(
+    return FocusScope(
       autofocus: true,
-      focusNode: _tvPlayerFocusNode,
       onKeyEvent: _handleKeyEvent,
       child: PopScope(
+        canPop: false,
         onPopInvokedWithResult: (didPop, _) {
-          if (didPop) _saveProgress();
+          if (didPop) return;
+          if (_showControls) {
+            setState(() => _showControls = false);
+          } else {
+            _saveProgress();
+            Navigator.of(context).pop();
+          }
         },
         child: Scaffold(
           backgroundColor: Colors.black,
@@ -1031,22 +1049,18 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
   Widget _buildOverlay() {
     if (_isLocked) return _buildLockedOverlay();
     if (!_showControls) return const SizedBox.shrink();
-    // CRITICAL 2 — tap on empty overlay area dismisses controls
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: _toggleControls,
-      child: Container(
-        color: _overlayBg,
-        child: Column(
-          children: [
-            _buildTopBar(),
-            const Spacer(),
-            _buildCenterRow(),
-            const Spacer(),
-            _buildBottomBar(),
-          ],
+    return Column(
+      children: [
+        _buildTopBar(),
+        Expanded(
+          child: GestureDetector(
+            behavior: HitTestBehavior.translucent,
+            onTap: _toggleControls,
+            child: const SizedBox.expand(),
+          ),
         ),
-      ),
+        _buildBottomBar(),
+      ],
     );
   }
 
@@ -1090,8 +1104,15 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
             '${widget.episodeTitle != null ? ' · ${widget.episodeTitle}' : ''}'
         : null;
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Colors.black87, Colors.transparent],
+        ),
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Row(
         children: [
           TvFocusable(
@@ -1159,63 +1180,6 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
     );
   }
 
-  // ── Center row ─────────────────────────────────────────────────────────
-
-  Widget _buildCenterRow() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        // -10s
-        TvFocusable(
-          borderRadius: 28,
-          scaleFactor: 1.15,
-          onTap: () {
-            _onUserInteraction();
-            _seekRelative(-_seekAmount);
-          },
-          child: const Padding(
-            padding: EdgeInsets.all(10),
-            child: Icon(Icons.replay_10, color: Colors.white, size: 40),
-          ),
-        ),
-        const SizedBox(width: 28),
-        // Play / Pause
-        TvFocusable(
-          autofocus: true,
-          borderRadius: 40,
-          scaleFactor: 1.12,
-          onTap: _togglePlayPause,
-          child: Container(
-            decoration: const BoxDecoration(
-              color: Colors.white24,
-              shape: BoxShape.circle,
-            ),
-            padding: const EdgeInsets.all(12),
-            child: Icon(
-              _isPlaying ? Icons.pause : Icons.play_arrow,
-              color: Colors.white,
-              size: 56,
-            ),
-          ),
-        ),
-        const SizedBox(width: 28),
-        // +10s
-        TvFocusable(
-          borderRadius: 28,
-          scaleFactor: 1.15,
-          onTap: () {
-            _onUserInteraction();
-            _seekRelative(_seekAmount);
-          },
-          child: const Padding(
-            padding: EdgeInsets.all(10),
-            child: Icon(Icons.forward_10, color: Colors.white, size: 40),
-          ),
-        ),
-      ],
-    );
-  }
-
   // ── Bottom bar ─────────────────────────────────────────────────────────
 
   Widget _buildBottomBar() {
@@ -1224,63 +1188,137 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
     final fraction =
         dur.inMilliseconds > 0 ? pos.inMilliseconds / dur.inMilliseconds : 0.0;
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.bottomCenter,
+          end: Alignment.topCenter,
+          colors: [Colors.black, Colors.black87, Colors.transparent],
+        ),
+      ),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Progress slider — IMPORTANT 1: buffer drags, seek only on release
-          SliderTheme(
-            data: SliderTheme.of(context).copyWith(
-              activeTrackColor: _accentRed,
-              inactiveTrackColor: Colors.white30,
-              thumbColor: _accentRed,
-              overlayColor: _accentRed.withValues(alpha: 0.2),
-              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
-              trackHeight: 3,
-            ),
-            child: Slider(
-              value: (_dragValue ?? fraction).clamp(0.0, 1.0),
-              onChangeStart: (_) {
-                _onUserInteraction();
-                setState(() => _dragValue = fraction.clamp(0.0, 1.0));
-              },
-              onChanged: (val) {
-                setState(() => _dragValue = val);
-              },
-              onChangeEnd: (val) {
-                setState(() => _dragValue = null);
-                _controller?.seekTo(
-                  Duration(milliseconds: (val * _duration.inMilliseconds).round()),
-                );
-              },
-            ),
-          ),
-          // Time + controls row
+          // Row 1: Scrubber row
           Row(
             children: [
-              // Elapsed
               Text(
                 _fmt(pos),
-                style: const TextStyle(color: Colors.white, fontSize: 12),
+                style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
               ),
-              const SizedBox(width: 4),
-              const Text('|', style: TextStyle(color: Colors.white38, fontSize: 12)),
-              const SizedBox(width: 4),
-              // Total
+              const SizedBox(width: 8),
+              Expanded(
+                child: SliderTheme(
+                  data: SliderTheme.of(context).copyWith(
+                    activeTrackColor: _accentRed,
+                    inactiveTrackColor: Colors.white30,
+                    thumbColor: _accentRed,
+                    overlayColor: _accentRed.withValues(alpha: 0.2),
+                    thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                    trackHeight: 3,
+                  ),
+                  child: Slider(
+                    value: (_dragValue ?? fraction).clamp(0.0, 1.0),
+                    onChangeStart: (_) {
+                      _onUserInteraction();
+                      setState(() => _dragValue = fraction.clamp(0.0, 1.0));
+                    },
+                    onChanged: (val) {
+                      setState(() => _dragValue = val);
+                    },
+                    onChangeEnd: (val) {
+                      setState(() => _dragValue = null);
+                      _controller?.seekTo(
+                        Duration(milliseconds: (val * _duration.inMilliseconds).round()),
+                      );
+                    },
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
               Text(
                 _fmt(dur),
                 style: const TextStyle(color: Colors.white70, fontSize: 12),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          // Row 2: Control buttons row
+          Row(
+            children: [
+              // Rewind 10s
+              TvFocusable(
+                borderRadius: 20,
+                scaleFactor: 1.08,
+                onTap: () {
+                  _onUserInteraction();
+                  _seekRelative(-_seekAmount);
+                },
+                child: Container(
+                  padding: const EdgeInsets.all(7),
+                  decoration: const BoxDecoration(
+                    color: Colors.white12,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.replay_10, color: Colors.white, size: 20),
+                ),
+              ),
+              const SizedBox(width: 10),
+              // Play/Pause (Primary focus node)
+              TvFocusable(
+                focusNode: _playPauseFocusNode,
+                autofocus: true,
+                borderRadius: 24,
+                scaleFactor: 1.1,
+                onTap: _togglePlayPause,
+                child: Container(
+                  padding: const EdgeInsets.all(9),
+                  decoration: const BoxDecoration(
+                    color: _accentRed,
+                    shape: BoxShape.circle,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Color(0x66E50914),
+                        blurRadius: 8,
+                        spreadRadius: 1,
+                      ),
+                    ],
+                  ),
+                  child: Icon(
+                    _isPlaying ? Icons.pause : Icons.play_arrow,
+                    color: Colors.white,
+                    size: 24,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              // Fast-forward 10s
+              TvFocusable(
+                borderRadius: 20,
+                scaleFactor: 1.08,
+                onTap: () {
+                  _onUserInteraction();
+                  _seekRelative(_seekAmount);
+                },
+                child: Container(
+                  padding: const EdgeInsets.all(7),
+                  decoration: const BoxDecoration(
+                    color: Colors.white12,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.forward_10, color: Colors.white, size: 20),
+                ),
               ),
               const Spacer(),
               // Audio & Language button
               TvFocusable(
                 borderRadius: 4,
-                scaleFactor: 1.08,
+                scaleFactor: 1.06,
                 onTap: _showLanguageSheet,
                 child: Container(
                   padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
                   decoration: BoxDecoration(
                     color: Colors.white12,
                     borderRadius: BorderRadius.circular(4),
@@ -1302,11 +1340,11 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
               // Quality badge
               TvFocusable(
                 borderRadius: 4,
-                scaleFactor: 1.08,
+                scaleFactor: 1.06,
                 onTap: _showResolutionSheet,
                 child: Container(
                   padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
                   decoration: BoxDecoration(
                     color: Colors.white12,
                     borderRadius: BorderRadius.circular(4),
@@ -1322,11 +1360,11 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
               // Speed button
               TvFocusable(
                 borderRadius: 4,
-                scaleFactor: 1.08,
+                scaleFactor: 1.06,
                 onTap: _showSpeedDialog,
                 child: Container(
                   padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
                   decoration: BoxDecoration(
                     color: Colors.white12,
                     borderRadius: BorderRadius.circular(4),
@@ -1341,11 +1379,11 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
               // Aspect ratio button
               TvFocusable(
                 borderRadius: 4,
-                scaleFactor: 1.08,
+                scaleFactor: 1.06,
                 onTap: _cycleAspectRatio,
                 child: Container(
                   padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
                   decoration: BoxDecoration(
                     color: Colors.white12,
                     borderRadius: BorderRadius.circular(4),
@@ -1361,14 +1399,14 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
                 const SizedBox(width: 8),
                 TvFocusable(
                   borderRadius: 4,
-                  scaleFactor: 1.08,
+                  scaleFactor: 1.06,
                   onTap: () {
                     _saveProgress();
                     Navigator.pop(context, 'next');
                   },
                   child: Container(
                     padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
                     decoration: BoxDecoration(
                       color: _accentRed.withValues(alpha: 0.8),
                       borderRadius: BorderRadius.circular(4),
@@ -1388,7 +1426,7 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
               ],
             ],
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 2),
         ],
       ),
     );

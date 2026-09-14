@@ -4,6 +4,7 @@ import '../services/moviebox_api.dart';
 import '../services/download_service.dart';
 import '../services/storage_service.dart';
 import '../services/content_filter_service.dart';
+import '../widgets/tv_focusable.dart';
 import 'netflix_player_screen.dart';
 
 class DetailScreen extends StatefulWidget {
@@ -155,48 +156,85 @@ class _DetailScreenState extends State<DetailScreen> {
           Row(
             children: [
               Expanded(
-                child: ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFE50914),
-                    foregroundColor: Colors.white,
+                child: TvFocusable(
+                  autofocus: true,
+                  borderRadius: 8,
+                  scaleFactor: 1.03,
+                  onTap: () => _onPlayTapped(),
+                  child: Container(
                     padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE50914),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    alignment: Alignment.center,
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.play_arrow, color: Colors.white),
+                        SizedBox(width: 8),
+                        Text(
+                          "Watch Movie",
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 15,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                  onPressed: () => _onPlayTapped(),
-                  icon: const Icon(Icons.play_arrow),
-                  label: const Text("Watch Movie", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
                 ),
               ),
               const SizedBox(width: 12),
-              IconButton.filledTonal(
-                style: IconButton.styleFrom(
-                  backgroundColor: Colors.white12,
-                  foregroundColor: Colors.white,
+              TvFocusable(
+                borderRadius: 8,
+                scaleFactor: 1.05,
+                onTap: () => _onDownloadTapped(),
+                child: Container(
                   padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Colors.white12,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.download, color: Colors.white),
                 ),
-                onPressed: () => _onDownloadTapped(),
-                icon: const Icon(Icons.download),
               ),
             ],
           ),
           const SizedBox(height: 12),
         ],
-        SizedBox(
-          width: double.infinity,
-          child: OutlinedButton.icon(
-            style: OutlinedButton.styleFrom(
-              foregroundColor: Colors.white,
-              side: const BorderSide(color: Colors.white54),
-              padding: const EdgeInsets.symmetric(vertical: 12),
+        TvFocusable(
+          autofocus: isSeries,
+          borderRadius: 8,
+          scaleFactor: 1.02,
+          onTap: () async {
+            await StorageService.instance.toggleWatchlist(widget.item);
+            if (mounted) {
+              setState(() => _inWatchlist = !_inWatchlist);
+            }
+          },
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.white54),
             ),
-            onPressed: () async {
-              await StorageService.instance.toggleWatchlist(widget.item);
-              if (mounted) {
-                setState(() => _inWatchlist = !_inWatchlist);
-              }
-            },
-            icon: Icon(_inWatchlist ? Icons.check : Icons.add),
-            label: Text(_inWatchlist ? "✓ In My List" : "+ My List"),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(_inWatchlist ? Icons.check : Icons.add, color: Colors.white),
+                const SizedBox(width: 8),
+                Text(
+                  _inWatchlist ? "✓ In My List" : "+ My List",
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ],
@@ -217,16 +255,24 @@ class _DetailScreenState extends State<DetailScreen> {
                 final isSelected = s.seasonNumber == _selectedSeason;
                 return Padding(
                   padding: const EdgeInsets.only(right: 8.0),
-                  child: ChoiceChip(
-                    label: Text(s.title),
-                    selected: isSelected,
-                    selectedColor: const Color(0xFFE50914),
-                    backgroundColor: const Color(0xFF252525),
-                    labelStyle: TextStyle(
-                      color: isSelected ? Colors.white : Colors.white70,
-                      fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                  child: TvFocusable(
+                    borderRadius: 18,
+                    scaleFactor: 1.05,
+                    onTap: () => _loadEpisodes(s.seasonNumber),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: isSelected ? const Color(0xFFE50914) : const Color(0xFF252525),
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                      child: Text(
+                        s.title,
+                        style: TextStyle(
+                          color: isSelected ? Colors.white : Colors.white70,
+                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                        ),
+                      ),
                     ),
-                    onSelected: (_) => _loadEpisodes(s.seasonNumber),
                   ),
                 );
               }).toList(),
@@ -247,34 +293,47 @@ class _DetailScreenState extends State<DetailScreen> {
             itemCount: _episodes.length,
             itemBuilder: (ctx, i) {
               final ep = _episodes[i];
-              return Card(
-                color: const Color(0xFF1E1E1E),
-                margin: const EdgeInsets.only(bottom: 8),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                child: ListTile(
-                  leading: CircleAvatar(
-                    backgroundColor: const Color(0x33E50914),
-                    child: Text(
-                      "${ep.episodeNumber}",
-                      style: const TextStyle(color: Color(0xFFE50914), fontWeight: FontWeight.bold),
-                    ),
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 8.0),
+                child: TvFocusable(
+                  autofocus: i == 0,
+                  borderRadius: 8,
+                  scaleFactor: 1.03,
+                  onTap: () => _onPlayTapped(
+                    season: ep.seasonNumber,
+                    episode: ep.episodeNumber,
+                    episodeTitle: ep.title,
                   ),
-                  title: Text(ep.title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14)),
-                  subtitle: ep.description?.isNotEmpty == true
-                      ? Text(ep.description!, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white54, fontSize: 12))
-                      : null,
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.download, color: Colors.white70, size: 20),
-                        onPressed: () => _onDownloadTapped(season: ep.seasonNumber, episode: ep.episodeNumber, episodeTitle: ep.title),
+                  child: Card(
+                    color: const Color(0xFF1E1E1E),
+                    margin: EdgeInsets.zero,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    child: ListTile(
+                      leading: CircleAvatar(
+                        backgroundColor: const Color(0x33E50914),
+                        child: Text(
+                          "${ep.episodeNumber}",
+                          style: const TextStyle(color: Color(0xFFE50914), fontWeight: FontWeight.bold),
+                        ),
                       ),
-                      IconButton(
-                        icon: const Icon(Icons.play_circle_fill, color: Color(0xFFE50914), size: 28),
-                        onPressed: () => _onPlayTapped(season: ep.seasonNumber, episode: ep.episodeNumber, episodeTitle: ep.title),
+                      title: Text(ep.title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14)),
+                      subtitle: ep.description?.isNotEmpty == true
+                          ? Text(ep.description!, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white54, fontSize: 12))
+                          : null,
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.download, color: Colors.white70, size: 20),
+                            onPressed: () => _onDownloadTapped(season: ep.seasonNumber, episode: ep.episodeNumber, episodeTitle: ep.title),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.play_circle_fill, color: Color(0xFFE50914), size: 28),
+                            onPressed: () => _onPlayTapped(season: ep.seasonNumber, episode: ep.episodeNumber, episodeTitle: ep.title),
+                          ),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
                 ),
               );
@@ -595,33 +654,15 @@ class _StreamSelectorSheetState extends State<_StreamSelectorSheet> {
           else ...[
             const Text("Select Quality:", style: TextStyle(color: Colors.white70, fontSize: 13)),
             const SizedBox(height: 8),
-            ..._streams.map((s) {
-              return Card(
-                color: const Color(0xFF2A2A2A),
-                margin: const EdgeInsets.only(bottom: 8),
-                child: ListTile(
-                  title: Row(
-                    children: [
-                      Text(s.resolution, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                      const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: const Color(0x33E50914),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(s.kind.toUpperCase(), style: const TextStyle(color: Color(0xFFE50914), fontSize: 10, fontWeight: FontWeight.bold)),
-                      ),
-                      if (s.bypassedDecoy) ...[
-                        const SizedBox(width: 6),
-                        const Icon(Icons.verified, color: Colors.greenAccent, size: 14),
-                      ],
-                    ],
-                  ),
-                  subtitle: s.sizeMb != null
-                      ? Text("${s.sizeMb} MB", style: const TextStyle(color: Colors.white54, fontSize: 12))
-                      : null,
-                  trailing: Icon(widget.isDownloadMode ? Icons.file_download : Icons.play_arrow, color: const Color(0xFFE50914)),
+            ..._streams.asMap().entries.map((entry) {
+              final index = entry.key;
+              final s = entry.value;
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 8.0),
+                child: TvFocusable(
+                  autofocus: index == 0,
+                  borderRadius: 8,
+                  scaleFactor: 1.03,
                   onTap: () {
                     Navigator.pop(context);
                     if (widget.isDownloadMode) {
@@ -653,6 +694,35 @@ class _StreamSelectorSheetState extends State<_StreamSelectorSheet> {
                       );
                     }
                   },
+                  child: Card(
+                    color: const Color(0xFF2A2A2A),
+                    margin: EdgeInsets.zero,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    child: ListTile(
+                      title: Row(
+                        children: [
+                          Text(s.resolution, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: const Color(0x33E50914),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(s.kind.toUpperCase(), style: const TextStyle(color: Color(0xFFE50914), fontSize: 10, fontWeight: FontWeight.bold)),
+                          ),
+                          if (s.bypassedDecoy) ...[
+                            const SizedBox(width: 6),
+                            const Icon(Icons.verified, color: Colors.greenAccent, size: 14),
+                          ],
+                        ],
+                      ),
+                      subtitle: s.sizeMb != null
+                          ? Text("${s.sizeMb} MB", style: const TextStyle(color: Colors.white54, fontSize: 12))
+                          : null,
+                      trailing: Icon(widget.isDownloadMode ? Icons.file_download : Icons.play_arrow, color: const Color(0xFFE50914)),
+                    ),
+                  ),
                 ),
               );
             }),

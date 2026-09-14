@@ -10,6 +10,7 @@ import '../models/media_models.dart';
 import '../models/storage_models.dart';
 import '../services/storage_service.dart';
 import '../services/moviebox_api.dart';
+import '../widgets/tv_focusable.dart';
 
 /// Netflix-style video player with custom overlay controls.
 class NetflixPlayerScreen extends StatefulWidget {
@@ -409,30 +410,48 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
         backgroundColor: const Color(0xFF1E1E1E),
         title: const Text('Playback Speed', style: TextStyle(color: Colors.white)),
         children: _speeds
+            .asMap()
+            .entries
             .map(
-              (s) => SimpleDialogOption(
-                onPressed: () {
-                  Navigator.pop(ctx, s);
-                },
-                child: Row(
-                  children: [
-                    if (s == _playbackSpeed)
-                      const Icon(Icons.check, color: _accentRed, size: 18)
-                    else
-                      const SizedBox(width: 18),
-                    const SizedBox(width: 8),
-                    Text(
-                      '${s}x',
-                      style: TextStyle(
-                        color: s == _playbackSpeed ? _accentRed : Colors.white,
-                        fontWeight: s == _playbackSpeed
-                            ? FontWeight.bold
-                            : FontWeight.normal,
+              (entry) {
+                final s = entry.value;
+                final isCurrent = (s - _playbackSpeed).abs() < 0.01;
+                return Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  child: TvFocusable(
+                    autofocus: isCurrent,
+                    borderRadius: 8,
+                    scaleFactor: 1.04,
+                    onTap: () => Navigator.pop(ctx, s),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: isCurrent ? const Color(0x33E50914) : Colors.white10,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            isCurrent ? Icons.check : Icons.speed,
+                            color: isCurrent ? _accentRed : Colors.white70,
+                            size: 18,
+                          ),
+                          const SizedBox(width: 12),
+                          Text(
+                            '${s}x',
+                            style: TextStyle(
+                              color: isCurrent ? _accentRed : Colors.white,
+                              fontWeight: isCurrent
+                                  ? FontWeight.bold
+                                  : FontWeight.normal,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
-                  ],
-                ),
-              ),
+                  ),
+                );
+              },
             )
             .toList(),
       ),
@@ -469,47 +488,58 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
                 ),
               ),
             ),
-            ...widget.availableStreams.map(
-              (s) => ListTile(
-                title: Row(
-                  children: [
-                    Text(
-                      s.resolution,
-                      style: TextStyle(
-                        color: s.url == _currentStream.url
-                            ? _accentRed
-                            : Colors.white,
-                        fontWeight: s.url == _currentStream.url
-                            ? FontWeight.bold
-                            : FontWeight.normal,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 6, vertical: 2),
+            ...widget.availableStreams.asMap().entries.map(
+              (entry) {
+                final i = entry.key;
+                final s = entry.value;
+                final isSelected = s.url == _currentStream.url;
+                return Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                  child: TvFocusable(
+                    autofocus: isSelected || (i == 0 && !widget.availableStreams.any((x) => x.url == _currentStream.url)),
+                    borderRadius: 8,
+                    scaleFactor: 1.03,
+                    onTap: () => Navigator.pop(ctx, s),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                       decoration: BoxDecoration(
-                        color: Colors.white12,
-                        borderRadius: BorderRadius.circular(4),
+                        color: isSelected ? const Color(0x33E50914) : const Color(0xFF2A2A2A),
+                        borderRadius: BorderRadius.circular(8),
                       ),
-                      child: Text(
-                        s.kind.toUpperCase(),
-                        style: const TextStyle(
-                            color: Colors.white70, fontSize: 10),
+                      child: Row(
+                        children: [
+                          Text(
+                            s.resolution,
+                            style: TextStyle(
+                              color: isSelected ? _accentRed : Colors.white,
+                              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.white12,
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              s.kind.toUpperCase(),
+                              style: const TextStyle(color: Colors.white70, fontSize: 10),
+                            ),
+                          ),
+                          const Spacer(),
+                          if (s.sizeMb != null)
+                            Text('${s.sizeMb} MB', style: const TextStyle(color: Colors.white54, fontSize: 12)),
+                          if (isSelected) ...[
+                            const SizedBox(width: 8),
+                            const Icon(Icons.check, color: _accentRed, size: 18),
+                          ],
+                        ],
                       ),
                     ),
-                  ],
-                ),
-                subtitle: s.sizeMb != null
-                    ? Text('${s.sizeMb} MB',
-                        style: const TextStyle(
-                            color: Colors.white54, fontSize: 12))
-                    : null,
-                trailing: s.url == _currentStream.url
-                    ? const Icon(Icons.check, color: _accentRed)
-                    : null,
-                onTap: () => Navigator.pop(ctx, s),
-              ),
+                  ),
+                );
+              },
             ),
           ],
         ),
@@ -613,41 +643,50 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
                           langLabel = 'Spanish Dub';
                         }
 
-                        return Card(
-                          color: isCurrent
-                              ? const Color(0xFF2E1A1A)
-                              : const Color(0xFF2A2A2A),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                            side: BorderSide(
-                              color: isCurrent ? _accentRed : Colors.transparent,
-                            ),
-                          ),
-                          child: ListTile(
-                            leading: Icon(
-                              isCurrent ? Icons.check_circle : Icons.audiotrack,
-                              color: isCurrent ? _accentRed : Colors.white54,
-                            ),
-                            title: Text(
-                              langLabel,
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontWeight: isCurrent
-                                    ? FontWeight.bold
-                                    : FontWeight.normal,
-                              ),
-                            ),
-                            subtitle: Text(
-                              item.title,
-                              style: const TextStyle(
-                                  color: Colors.white54, fontSize: 11),
-                            ),
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 6.0),
+                          child: TvFocusable(
+                            autofocus: isCurrent || index == 0,
+                            borderRadius: 8,
+                            scaleFactor: 1.03,
                             onTap: () {
                               Navigator.pop(ctx);
                               if (!isCurrent) {
                                 _switchLanguage(item);
                               }
                             },
+                            child: Card(
+                              color: isCurrent
+                                  ? const Color(0xFF2E1A1A)
+                                  : const Color(0xFF2A2A2A),
+                              margin: EdgeInsets.zero,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                side: BorderSide(
+                                  color: isCurrent ? _accentRed : Colors.transparent,
+                                ),
+                              ),
+                              child: ListTile(
+                                leading: Icon(
+                                  isCurrent ? Icons.check_circle : Icons.audiotrack,
+                                  color: isCurrent ? _accentRed : Colors.white54,
+                                ),
+                                title: Text(
+                                  langLabel,
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: isCurrent
+                                        ? FontWeight.bold
+                                        : FontWeight.normal,
+                                  ),
+                                ),
+                                subtitle: Text(
+                                  item.title,
+                                  style: const TextStyle(
+                                      color: Colors.white54, fontSize: 11),
+                                ),
+                              ),
+                            ),
                           ),
                         );
                       },
@@ -699,45 +738,76 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
   }
 
   KeyEventResult _handleKeyEvent(FocusNode node, KeyEvent event) {
-    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+      return KeyEventResult.ignored;
+    }
 
     final key = event.logicalKey;
-    if (key == LogicalKeyboardKey.select ||
-        key == LogicalKeyboardKey.enter ||
-        key == LogicalKeyboardKey.numpadEnter ||
-        key == LogicalKeyboardKey.space ||
-        key == LogicalKeyboardKey.mediaPlayPause ||
+
+    // Dedicated hardware media playback keys always handle directly:
+    if (key == LogicalKeyboardKey.mediaPlayPause ||
         key == LogicalKeyboardKey.mediaPlay ||
         key == LogicalKeyboardKey.mediaPause) {
-      if (!_showControls) {
-        _onUserInteraction();
-      } else {
-        _togglePlayPause();
-      }
-      return KeyEventResult.handled;
-    }
-
-    if (key == LogicalKeyboardKey.arrowLeft || key == LogicalKeyboardKey.mediaRewind) {
-      _doubleTapSeek(forward: false);
-      return KeyEventResult.handled;
-    }
-
-    if (key == LogicalKeyboardKey.arrowRight || key == LogicalKeyboardKey.mediaFastForward) {
-      _doubleTapSeek(forward: true);
-      return KeyEventResult.handled;
-    }
-
-    if (key == LogicalKeyboardKey.arrowUp || key == LogicalKeyboardKey.arrowDown) {
+      _togglePlayPause();
       _onUserInteraction();
       return KeyEventResult.handled;
     }
 
-    if (key == LogicalKeyboardKey.escape) {
-      _saveProgress();
-      Navigator.of(context).pop();
+    if (key == LogicalKeyboardKey.mediaRewind) {
+      _doubleTapSeek(forward: false);
       return KeyEventResult.handled;
     }
 
+    if (key == LogicalKeyboardKey.mediaFastForward) {
+      _doubleTapSeek(forward: true);
+      return KeyEventResult.handled;
+    }
+
+    // When controls are hidden: direct D-pad playback actions
+    if (!_showControls) {
+      if (key == LogicalKeyboardKey.select ||
+          key == LogicalKeyboardKey.enter ||
+          key == LogicalKeyboardKey.numpadEnter ||
+          key == LogicalKeyboardKey.space ||
+          key == LogicalKeyboardKey.gameButtonA) {
+        _togglePlayPause();
+        _onUserInteraction();
+        return KeyEventResult.handled;
+      }
+
+      if (key == LogicalKeyboardKey.arrowLeft) {
+        _doubleTapSeek(forward: false);
+        return KeyEventResult.handled;
+      }
+
+      if (key == LogicalKeyboardKey.arrowRight) {
+        _doubleTapSeek(forward: true);
+        return KeyEventResult.handled;
+      }
+
+      if (key == LogicalKeyboardKey.arrowUp || key == LogicalKeyboardKey.arrowDown) {
+        _onUserInteraction();
+        return KeyEventResult.handled;
+      }
+
+      if (key == LogicalKeyboardKey.escape || key == LogicalKeyboardKey.goBack) {
+        _saveProgress();
+        Navigator.of(context).pop();
+        return KeyEventResult.handled;
+      }
+
+      return KeyEventResult.ignored;
+    }
+
+    // When controls ARE visible:
+    _resetHideTimer();
+
+    if (key == LogicalKeyboardKey.escape || key == LogicalKeyboardKey.goBack) {
+      setState(() => _showControls = false);
+      return KeyEventResult.handled;
+    }
+
+    // Allow D-pad arrows, select, enter to navigate and click focusable overlay buttons
     return KeyEventResult.ignored;
   }
 
@@ -1024,14 +1094,19 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       child: Row(
         children: [
-          IconButton(
-            icon: const Icon(Icons.arrow_back, color: Colors.white),
-            onPressed: () {
+          TvFocusable(
+            borderRadius: 20,
+            scaleFactor: 1.1,
+            onTap: () {
               _saveProgress();
               Navigator.pop(context);
             },
+            child: const Padding(
+              padding: EdgeInsets.all(8),
+              child: Icon(Icons.arrow_back, color: Colors.white),
+            ),
           ),
-          const SizedBox(width: 4),
+          const SizedBox(width: 8),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1056,19 +1131,28 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
             ),
           ),
           // External player
-          IconButton(
-            tooltip: 'Open in external player',
-            icon: const Icon(Icons.open_in_new, color: Colors.white),
-            onPressed: _openExternal,
+          TvFocusable(
+            borderRadius: 20,
+            scaleFactor: 1.1,
+            onTap: _openExternal,
+            child: const Padding(
+              padding: EdgeInsets.all(8),
+              child: Icon(Icons.open_in_new, color: Colors.white),
+            ),
           ),
+          const SizedBox(width: 8),
           // Screen lock
-          IconButton(
-            tooltip: 'Lock screen',
-            icon: const Icon(Icons.lock_open, color: Colors.white),
-            onPressed: () {
+          TvFocusable(
+            borderRadius: 20,
+            scaleFactor: 1.1,
+            onTap: () {
               setState(() => _isLocked = true);
               _hideTimer?.cancel();
             },
+            child: const Padding(
+              padding: EdgeInsets.all(8),
+              child: Icon(Icons.lock_open, color: Colors.white),
+            ),
           ),
         ],
       ),
@@ -1082,16 +1166,24 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         // -10s
-        IconButton(
-          icon: const Icon(Icons.replay_10, color: Colors.white, size: 40),
-          onPressed: () {
+        TvFocusable(
+          borderRadius: 28,
+          scaleFactor: 1.15,
+          onTap: () {
             _onUserInteraction();
             _seekRelative(-_seekAmount);
           },
+          child: const Padding(
+            padding: EdgeInsets.all(10),
+            child: Icon(Icons.replay_10, color: Colors.white, size: 40),
+          ),
         ),
-        const SizedBox(width: 24),
+        const SizedBox(width: 28),
         // Play / Pause
-        GestureDetector(
+        TvFocusable(
+          autofocus: true,
+          borderRadius: 40,
+          scaleFactor: 1.12,
           onTap: _togglePlayPause,
           child: Container(
             decoration: const BoxDecoration(
@@ -1106,14 +1198,19 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
             ),
           ),
         ),
-        const SizedBox(width: 24),
+        const SizedBox(width: 28),
         // +10s
-        IconButton(
-          icon: const Icon(Icons.forward_10, color: Colors.white, size: 40),
-          onPressed: () {
+        TvFocusable(
+          borderRadius: 28,
+          scaleFactor: 1.15,
+          onTap: () {
             _onUserInteraction();
             _seekRelative(_seekAmount);
           },
+          child: const Padding(
+            padding: EdgeInsets.all(10),
+            child: Icon(Icons.forward_10, color: Colors.white, size: 40),
+          ),
         ),
       ],
     );
@@ -1177,7 +1274,9 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
               ),
               const Spacer(),
               // Audio & Language button
-              GestureDetector(
+              TvFocusable(
+                borderRadius: 4,
+                scaleFactor: 1.08,
                 onTap: _showLanguageSheet,
                 child: Container(
                   padding:
@@ -1201,7 +1300,9 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
               ),
               const SizedBox(width: 8),
               // Quality badge
-              GestureDetector(
+              TvFocusable(
+                borderRadius: 4,
+                scaleFactor: 1.08,
                 onTap: _showResolutionSheet,
                 child: Container(
                   padding:
@@ -1219,7 +1320,9 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
               ),
               const SizedBox(width: 8),
               // Speed button
-              GestureDetector(
+              TvFocusable(
+                borderRadius: 4,
+                scaleFactor: 1.08,
                 onTap: _showSpeedDialog,
                 child: Container(
                   padding:
@@ -1236,7 +1339,9 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
               ),
               const SizedBox(width: 8),
               // Aspect ratio button
-              GestureDetector(
+              TvFocusable(
+                borderRadius: 4,
+                scaleFactor: 1.08,
                 onTap: _cycleAspectRatio,
                 child: Container(
                   padding:
@@ -1254,7 +1359,9 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
               // Next episode button (series only)
               if (widget.isSeries) ...[
                 const SizedBox(width: 8),
-                GestureDetector(
+                TvFocusable(
+                  borderRadius: 4,
+                  scaleFactor: 1.08,
                   onTap: () {
                     _saveProgress();
                     Navigator.pop(context, 'next');

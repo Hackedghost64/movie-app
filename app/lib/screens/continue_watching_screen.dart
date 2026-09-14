@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/media_models.dart';
 import '../models/storage_models.dart';
 import '../services/storage_service.dart';
+import '../widgets/tv_focusable.dart';
 import 'netflix_player_screen.dart';
 
 class ContinueWatchingScreen extends StatefulWidget {
@@ -149,11 +150,23 @@ class _ContinueWatchingScreenState extends State<ContinueWatchingScreen> {
         iconTheme: const IconThemeData(color: Colors.white),
         actions: [
           if (_items.isNotEmpty)
-            TextButton(
-              onPressed: _clearAll,
-              child: const Text(
-                'Clear All',
-                style: TextStyle(color: _accentRed, fontWeight: FontWeight.w600),
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: TvFocusable(
+                onTap: _clearAll,
+                borderRadius: 8,
+                scaleFactor: 1.05,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.white10,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Text(
+                    'Clear All',
+                    style: TextStyle(color: _accentRed, fontWeight: FontWeight.w600),
+                  ),
+                ),
               ),
             ),
         ],
@@ -199,112 +212,131 @@ class _ContinueWatchingScreenState extends State<ContinueWatchingScreen> {
           itemCount: _items.length,
           itemBuilder: (context, index) {
             final progress = _items[index];
-            return _buildCard(progress);
+            return _buildCard(progress, index);
           },
         ),
       ),
     );
   }
 
-  Widget _buildCard(WatchProgress progress) {
-    return Dismissible(
-      key: Key('cw_${progress.subjectId}'),
-      direction: DismissDirection.endToStart,
-      background: Container(
-        alignment: Alignment.centerRight,
-        padding: const EdgeInsets.only(right: 24),
-        color: _accentRed,
-        child: const Icon(Icons.delete, color: Colors.white),
-      ),
-      onDismissed: (_) => _removeItem(progress.subjectId),
-      child: GestureDetector(
+  Widget _buildCard(WatchProgress progress, int index) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      child: TvFocusable(
+        autofocus: index == 0,
+        borderRadius: 10,
+        scaleFactor: 1.04,
         onTap: () => _resumeItem(progress),
-        child: Container(
-          margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: _cardBg,
-            borderRadius: BorderRadius.circular(10),
+        child: Dismissible(
+          key: Key('cw_${progress.subjectId}'),
+          direction: DismissDirection.endToStart,
+          background: Container(
+            alignment: Alignment.centerRight,
+            padding: const EdgeInsets.only(right: 24),
+            decoration: BoxDecoration(
+              color: _accentRed,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(Icons.delete, color: Colors.white),
           ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Poster
-              ClipRRect(
-                borderRadius: BorderRadius.circular(6),
-                child: progress.poster != null
-                    ? Image.network(
-                        progress.poster!,
-                        width: 80,
-                        height: 110,
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) => _posterFallback(),
-                      )
-                    : _posterFallback(),
-              ),
-              const SizedBox(width: 12),
-              // Info
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      progress.title,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 15,
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    if (progress.season > 0) ...[
-                      const SizedBox(height: 4),
+          onDismissed: (_) => _removeItem(progress.subjectId),
+          child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: _cardBg,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Poster
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(6),
+                  child: progress.poster != null
+                      ? Image.network(
+                          progress.poster!,
+                          width: 80,
+                          height: 110,
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) => _posterFallback(),
+                        )
+                      : _posterFallback(),
+                ),
+                const SizedBox(width: 12),
+                // Info
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
                       Text(
-                        'S${progress.season}:E${progress.episode}'
-                        '${progress.episodeTitle != null ? ' — ${progress.episodeTitle}' : ''}',
-                        style: const TextStyle(color: Colors.white54, fontSize: 12),
-                        maxLines: 1,
+                        progress.title,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
+                        ),
+                        maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
+                      if (progress.season > 0) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          'S${progress.season}:E${progress.episode}'
+                          '${progress.episodeTitle != null ? ' — ${progress.episodeTitle}' : ''}',
+                          style: const TextStyle(color: Colors.white54, fontSize: 12),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                      const SizedBox(height: 10),
+                      // Progress bar
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(2),
+                        child: LinearProgressIndicator(
+                          value: progress.progressPercentage.clamp(0.0, 1.0),
+                          backgroundColor: Colors.white12,
+                          valueColor:
+                              const AlwaysStoppedAnimation<Color>(_accentRed),
+                          minHeight: 4,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      // Remaining time badge
+                      if (progress.durationMs > 0)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.white10,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            _remainingText(progress),
+                            style: const TextStyle(
+                                color: Colors.white70, fontSize: 11),
+                          ),
+                        ),
                     ],
-                    const SizedBox(height: 10),
-                    // Progress bar
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(2),
-                      child: LinearProgressIndicator(
-                        value: progress.progressPercentage.clamp(0.0, 1.0),
-                        backgroundColor: Colors.white12,
-                        valueColor:
-                            const AlwaysStoppedAnimation<Color>(_accentRed),
-                        minHeight: 4,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    // Remaining time badge
-                    if (progress.durationMs > 0)
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: Colors.white10,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          _remainingText(progress),
-                          style: const TextStyle(
-                              color: Colors.white70, fontSize: 11),
-                        ),
-                      ),
-                  ],
+                  ),
                 ),
-              ),
-              // Resume icon
-              const Padding(
-                padding: EdgeInsets.only(top: 30),
-                child: Icon(Icons.play_arrow, color: Colors.white54, size: 28),
-              ),
-            ],
+                // Actions
+                Padding(
+                  padding: const EdgeInsets.only(top: 24),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.delete_outline, color: Colors.white54, size: 22),
+                        tooltip: 'Remove',
+                        onPressed: () => _removeItem(progress.subjectId),
+                      ),
+                      const SizedBox(width: 4),
+                      const Icon(Icons.play_circle_fill, color: _accentRed, size: 32),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),

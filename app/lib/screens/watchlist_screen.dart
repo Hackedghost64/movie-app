@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/tv_focusable.dart';
 import '../models/media_models.dart';
 import '../models/storage_models.dart';
 import '../services/storage_service.dart';
@@ -127,7 +128,7 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
           padding: const EdgeInsets.all(12),
           sliver: SliverGrid(
             delegate: SliverChildBuilderDelegate(
-              (context, index) => _buildGridCard(_items[index]),
+              (context, index) => _buildGridCard(_items[index], autofocus: index == 0),
               childCount: _items.length,
             ),
             gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
@@ -142,22 +143,25 @@ class _WatchlistScreenState extends State<WatchlistScreen> {
     );
   }
 
-  Widget _buildGridCard(WatchlistItem item) {
-    return Dismissible(
-      key: Key('wl_${item.id}'),
-      direction: DismissDirection.endToStart,
-      background: Container(
-        alignment: Alignment.centerRight,
-        padding: const EdgeInsets.only(right: 16),
-        decoration: BoxDecoration(
-          color: _accentRed,
-          borderRadius: BorderRadius.circular(10),
+  Widget _buildGridCard(WatchlistItem item, {bool autofocus = false}) {
+    return TvFocusable(
+      autofocus: autofocus,
+      borderRadius: 10,
+      scaleFactor: 1.07,
+      onTap: () => _openDetail(item),
+      child: Dismissible(
+        key: Key('wl_${item.id}'),
+        direction: DismissDirection.endToStart,
+        background: Container(
+          alignment: Alignment.centerRight,
+          padding: const EdgeInsets.only(right: 16),
+          decoration: BoxDecoration(
+            color: _accentRed,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: const Icon(Icons.bookmark_remove, color: Colors.white),
         ),
-        child: const Icon(Icons.bookmark_remove, color: Colors.white),
-      ),
-      onDismissed: (_) => _removeItem(item.id),
-      child: GestureDetector(
-        onTap: () => _openDetail(item),
+        onDismissed: (_) => _removeItem(item.id),
         child: Container(
           decoration: BoxDecoration(
             color: _cardBg,

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'services/moviebox_api.dart';
 import 'services/storage_service.dart';
 import 'services/content_filter_service.dart';
@@ -31,6 +32,14 @@ class MBXApp extends StatelessWidget {
     return MaterialApp(
       title: 'MBX Stream',
       debugShowCheckedModeBanner: false,
+      shortcuts: <ShortcutActivator, Intent>{
+        ...WidgetsApp.defaultShortcuts,
+        LogicalKeySet(LogicalKeyboardKey.select): const ActivateIntent(),
+        LogicalKeySet(LogicalKeyboardKey.enter): const ActivateIntent(),
+        LogicalKeySet(LogicalKeyboardKey.numpadEnter): const ActivateIntent(),
+        LogicalKeySet(LogicalKeyboardKey.space): const ActivateIntent(),
+        LogicalKeySet(LogicalKeyboardKey.gameButtonA): const ActivateIntent(),
+      },
       themeMode: ThemeMode.dark,
       darkTheme: ThemeData(
         useMaterial3: true,

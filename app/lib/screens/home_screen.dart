@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/tv_focusable.dart';
 import '../models/media_models.dart';
 import '../models/storage_models.dart';
 import '../services/moviebox_api.dart';
@@ -492,6 +493,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         final progress = _continueWatching[i];
                         return _ContinueWatchingCard(
                           progress: progress,
+                          autofocus: i == 0,
                           onTap: () {
                             if (progress.streamUrl != null) {
                               final stream = StreamOption(
@@ -583,6 +585,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       return _CategoryChip(
                         label: cat,
                         isSelected: _selectedCategory == cat,
+                        autofocus: _continueWatching.isEmpty && i == 0,
                         onTap: () => _selectCategory(cat),
                       );
                     },
@@ -658,7 +661,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 mainAxisSpacing: 10,
               ),
               delegate: SliverChildBuilderDelegate(
-                (ctx, i) => _MediaCard(item: _trending[i]),
+                (ctx, i) => _MediaCard(
+                item: _trending[i],
+                autofocus: i == 0 && _continueWatching.isEmpty,
+              ),
                 childCount: _trending.length,
               ),
             ),
@@ -719,123 +725,70 @@ class _HomeScreenState extends State<HomeScreen> {
 
 // ─── TV Remote Focusable Wrapper ─────────────────────────────────────────────
 
-class _TvFocusableCard extends StatefulWidget {
+class _TvFocusableCard extends StatelessWidget {
   final Widget child;
   final VoidCallback onTap;
   final double borderRadius;
+  final bool autofocus;
 
   const _TvFocusableCard({
     required this.child,
     required this.onTap,
     this.borderRadius = 8,
+    this.autofocus = false,
   });
 
   @override
-  State<_TvFocusableCard> createState() => _TvFocusableCardState();
-}
-
-class _TvFocusableCardState extends State<_TvFocusableCard> {
-  bool _isFocused = false;
-
-  @override
   Widget build(BuildContext context) {
-    return FocusableActionDetector(
-      onFocusChange: (f) => setState(() => _isFocused = f),
-      actions: {
-        ActivateIntent: CallbackAction<ActivateIntent>(
-          onInvoke: (_) {
-            widget.onTap();
-            return null;
-          },
-        ),
-      },
-      child: GestureDetector(
-        onTap: widget.onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          transform: _isFocused ? Matrix4.diagonal3Values(1.05, 1.05, 1.0) : Matrix4.identity(),
-          transformAlignment: Alignment.center,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(widget.borderRadius),
-            border: _isFocused
-                ? Border.all(color: const Color(0xFFE50914), width: 3.0)
-                : Border.all(color: Colors.transparent, width: 3.0),
-            boxShadow: _isFocused
-                ? const [
-                    BoxShadow(color: Color(0xAA000000), blurRadius: 10, spreadRadius: 2),
-                    BoxShadow(color: Color(0x88E50914), blurRadius: 12, spreadRadius: 2),
-                  ]
-                : null,
-          ),
-          child: widget.child,
-        ),
-      ),
+    return TvFocusable(
+      onTap: onTap,
+      borderRadius: borderRadius,
+      autofocus: autofocus,
+      scaleFactor: 1.08,
+      child: child,
     );
   }
 }
 
 // ─── Category Chip with TV Focus ─────────────────────────────────────────────
 
-class _CategoryChip extends StatefulWidget {
+class _CategoryChip extends StatelessWidget {
   final String label;
   final bool isSelected;
   final VoidCallback onTap;
+  final bool autofocus;
 
   const _CategoryChip({
     required this.label,
     required this.isSelected,
     required this.onTap,
+    this.autofocus = false,
   });
 
   @override
-  State<_CategoryChip> createState() => _CategoryChipState();
-}
-
-class _CategoryChipState extends State<_CategoryChip> {
-  bool _isFocused = false;
-
-  @override
   Widget build(BuildContext context) {
-    final active = widget.isSelected || _isFocused;
-    return FocusableActionDetector(
-      onFocusChange: (f) => setState(() => _isFocused = f),
-      actions: {
-        ActivateIntent: CallbackAction<ActivateIntent>(
-          onInvoke: (_) {
-            widget.onTap();
-            return null;
-          },
-        ),
-      },
-      child: GestureDetector(
-        onTap: widget.onTap,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-          decoration: BoxDecoration(
-            color: widget.isSelected
-                ? const Color(0xFFE50914)
-                : (_isFocused ? const Color(0xFF333333) : const Color(0xFF222222)),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-              color: _isFocused
-                  ? Colors.white
-                  : (widget.isSelected ? const Color(0xFFE50914) : Colors.white24),
-              width: _isFocused ? 2 : 1,
-            ),
-            boxShadow: _isFocused
-                ? const [
-                    BoxShadow(color: Color(0x66E50914), blurRadius: 8, spreadRadius: 1),
-                  ]
-                : null,
+    return TvFocusable(
+      onTap: onTap,
+      borderRadius: 20,
+      scaleFactor: 1.1,
+      autofocus: autofocus,
+      focusedBackgroundColor: const Color(0xFFE50914),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? const Color(0xFFE50914) : const Color(0xFF222222),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: isSelected ? const Color(0xFFE50914) : Colors.white24,
+            width: 1,
           ),
-          child: Text(
-            widget.label,
-            style: TextStyle(
-              color: active ? Colors.white : Colors.white70,
-              fontSize: 12,
-              fontWeight: active ? FontWeight.bold : FontWeight.normal,
-            ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: isSelected ? Colors.white : Colors.white70,
+            fontSize: 12,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
           ),
         ),
       ),
@@ -848,12 +801,18 @@ class _CategoryChipState extends State<_CategoryChip> {
 class _ContinueWatchingCard extends StatelessWidget {
   final WatchProgress progress;
   final VoidCallback onTap;
+  final bool autofocus;
 
-  const _ContinueWatchingCard({required this.progress, required this.onTap});
+  const _ContinueWatchingCard({
+    required this.progress,
+    required this.onTap,
+    this.autofocus = false,
+  });
 
   @override
   Widget build(BuildContext context) {
     return _TvFocusableCard(
+      autofocus: autofocus,
       onTap: onTap,
       borderRadius: 8,
       child: Container(
@@ -970,12 +929,17 @@ class _WatchlistCard extends StatelessWidget {
 
 class _MediaCard extends StatelessWidget {
   final MediaItem item;
+  final bool autofocus;
 
-  const _MediaCard({required this.item});
+  const _MediaCard({
+    required this.item,
+    this.autofocus = false,
+  });
 
   @override
   Widget build(BuildContext context) {
     return _TvFocusableCard(
+      autofocus: autofocus,
       onTap: () {
         Navigator.push(context, MaterialPageRoute(builder: (_) => DetailScreen(item: item)));
       },

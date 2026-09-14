@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../widgets/tv_focusable.dart';
 import 'home_screen.dart';
 import 'continue_watching_screen.dart';
 import 'watchlist_screen.dart';
@@ -63,7 +64,7 @@ class _MainNavScreenState extends State<MainNavScreen> {
   }
 }
 
-class _TvNavItem extends StatefulWidget {
+class _TvNavItem extends StatelessWidget {
   final IconData icon;
   final String label;
   final bool isSelected;
@@ -77,52 +78,34 @@ class _TvNavItem extends StatefulWidget {
   });
 
   @override
-  State<_TvNavItem> createState() => _TvNavItemState();
-}
-
-class _TvNavItemState extends State<_TvNavItem> {
-  bool _isFocused = false;
-
-  @override
   Widget build(BuildContext context) {
-    final active = widget.isSelected || _isFocused;
-    final color = active ? const Color(0xFFE50914) : Colors.white54;
     return Expanded(
-      child: FocusableActionDetector(
-        onFocusChange: (f) => setState(() => _isFocused = f),
-        actions: {
-          ActivateIntent: CallbackAction<ActivateIntent>(
-            onInvoke: (_) {
-              widget.onTap();
-              return null;
-            },
-          ),
-        },
-        child: InkWell(
-          onTap: widget.onTap,
-          borderRadius: BorderRadius.circular(12),
-          child: Container(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(12),
-              color: _isFocused ? const Color(0x33E50914) : Colors.transparent,
-              border: _isFocused ? Border.all(color: const Color(0xFFE50914), width: 2) : null,
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(widget.icon, color: color, size: 24),
-                const SizedBox(height: 4),
-                Text(
-                  widget.label,
-                  style: TextStyle(
-                    color: color,
-                    fontSize: 11,
-                    fontWeight: active ? FontWeight.bold : FontWeight.normal,
-                  ),
+      child: TvFocusable(
+        onTap: onTap,
+        borderRadius: 12,
+        scaleFactor: 1.06,
+        autoScroll: false,
+        focusedBackgroundColor: const Color(0x33E50914),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                icon,
+                color: isSelected ? const Color(0xFFE50914) : Colors.white70,
+                size: 24,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                label,
+                style: TextStyle(
+                  color: isSelected ? const Color(0xFFE50914) : Colors.white70,
+                  fontSize: 11,
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),

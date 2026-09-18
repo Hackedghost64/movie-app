@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../models/media_models.dart';
 import '../models/storage_models.dart';
@@ -51,6 +52,28 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
   String _errorMessage = '';
 
   late StreamOption _currentStream;
+
+  // ── Playback Target (Mutable for in-place episode switching) ───────────────
+  late int _currentSeason;
+  late int _currentEpisode;
+  String? _currentEpisodeTitle;
+  late String _currentTitle;
+
+  // ── Series Episode Navigation & Auto-play ─────────────────────────────────
+  List<SeasonItem> _seasons = [];
+  List<EpisodeItem> _episodes = [];
+  bool _isLoadingNextEpisode = false;
+  String? _loadingNextEpisodeText;
+  int? _autoPlayCountdown;
+  Timer? _autoPlayTimer;
+  bool _autoPlayDismissed = false;
+
+  // ── Floating Seek Badge ───────────────────────────────────────────────────
+  bool _showSeekBadge = false;
+  bool _seekBadgeForward = true;
+  String _seekBadgeDelta = '+10s';
+  String _seekBadgeTarget = '';
+  Timer? _seekBadgeTimer;
 
   // ── Overlay state ─────────────────────────────────────────────────────────
   bool _showControls = true;
@@ -118,7 +141,17 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
   void initState() {
     super.initState();
     _currentStream = widget.stream;
+    _currentSeason = widget.season;
+    _currentEpisode = widget.episode;
+    _currentEpisodeTitle = widget.episodeTitle;
+    _currentTitle = widget.title;
+
     _enterImmersive();
+    WakelockPlus.enable();
+
+    if (widget.isSeries) {
+      _loadSeriesStructure();
+    }
 
     // Determine initial playback point
     Duration? seekTarget = widget.initialPosition;
@@ -153,11 +186,27 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
     _rippleTimer?.cancel();
     _saveTimer?.cancel();
     _resumeBannerTimer?.cancel();
+    _autoPlayTimer?.cancel();
+    _seekBadgeTimer?.cancel();
     _playPauseFocusNode.dispose();
     _controller?.removeListener(_onVideoEvent);
     _controller?.dispose();
+    WakelockPlus.disable();
     _exitImmersive();
     super.dispose();
+  }
+
+  Future<void> _loadSeriesStructure() async {
+    try {
+      final seasons = await MovieBoxApi.instance.getSeasons(widget.subjectId);
+      if (mounted) {
+        setState(() => _seasons = seasons);
+        final eps = await MovieBoxApi.instance.getEpisodes(widget.subjectId, _currentSeason);
+        if (mounted) {
+          setState(() => _episodes = eps);
+        }
+      }
+    } catch (_) {}
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -251,6 +300,14 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
   void _onVideoEvent() {
     if (!mounted) return;
     final now = DateTime.now().millisecondsSinceEpoch;
+
+    // Keep screen awake while playing; release when paused
+    if (_isPlaying) {
+      WakelockPlus.enable();
+    } else {
+      WakelockPlus.disable();
+    }
+
     // Only rebuild UI if controls are visible and throttled to at most once per 200ms
     if (_showControls && now - _lastTick > 200) {
       _lastTick = now;
@@ -263,6 +320,20 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
       _saveTimer = Timer.periodic(const Duration(seconds: 5), (_) {
         _saveProgress();
       });
+    }
+
+    // Auto-play next episode check (when 15s remain or video ended)
+    if (widget.isSeries && _hasNextEpisode && !_autoPlayDismissed && !_isLoadingNextEpisode) {
+      final ctrl = _controller;
+      if (ctrl != null && ctrl.value.isInitialized) {
+        final pos = ctrl.value.position;
+        final dur = ctrl.value.duration;
+        if (dur > const Duration(minutes: 1) && (pos >= dur - const Duration(seconds: 15) || (pos >= dur && dur > Duration.zero))) {
+          if (_autoPlayCountdown == null) {
+            _startAutoPlayCountdown();
+          }
+        }
+      }
     }
   }
 
@@ -278,11 +349,11 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
     StorageService.instance.saveWatchProgress(
       WatchProgress(
         subjectId: widget.subjectId,
-        title: widget.title,
+        title: _currentTitle,
         poster: widget.poster,
-        season: widget.season,
-        episode: widget.episode,
-        episodeTitle: widget.episodeTitle,
+        season: _currentSeason,
+        episode: _currentEpisode,
+        episodeTitle: _currentEpisodeTitle,
         positionMs: pos,
         durationMs: dur,
         lastWatchedMs: DateTime.now().millisecondsSinceEpoch,
@@ -345,6 +416,22 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
     }
   }
 
+  void _triggerSeekFeedback({required bool forward, required Duration delta}) {
+    final ctrl = _controller;
+    if (ctrl == null) return;
+    final target = ctrl.value.position;
+    _seekBadgeTimer?.cancel();
+    setState(() {
+      _showSeekBadge = true;
+      _seekBadgeForward = forward;
+      _seekBadgeDelta = '${forward ? "+" : "-"}${delta.inSeconds.abs()}s';
+      _seekBadgeTarget = _fmt(target);
+    });
+    _seekBadgeTimer = Timer(const Duration(milliseconds: 900), () {
+      if (mounted) setState(() => _showSeekBadge = false);
+    });
+  }
+
   void _seekRelative(Duration delta) {
     final ctrl = _controller;
     if (ctrl == null) return;
@@ -353,6 +440,308 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
         ? Duration.zero
         : (target > ctrl.value.duration ? ctrl.value.duration : target);
     ctrl.seekTo(clamped);
+    _triggerSeekFeedback(forward: delta > Duration.zero, delta: delta);
+  }
+
+  bool get _hasNextEpisode {
+    if (!widget.isSeries) return false;
+    if (_seasons.isEmpty && _episodes.isEmpty) {
+      return _currentEpisode > 0;
+    }
+    final currentSeasonItem = _seasons.where((s) => s.seasonNumber == _currentSeason).firstOrNull;
+    final totalEpsInSeason = currentSeasonItem?.episodeCount ?? _episodes.length;
+    if (_currentEpisode < totalEpsInSeason) return true;
+    final nextSeasonItem = _seasons.where((s) => s.seasonNumber > _currentSeason).firstOrNull;
+    return nextSeasonItem != null;
+  }
+
+  void _startAutoPlayCountdown() {
+    _autoPlayCountdown = 10;
+    _autoPlayTimer?.cancel();
+    _autoPlayTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      if (_autoPlayCountdown == null) {
+        timer.cancel();
+        return;
+      }
+      if (_autoPlayCountdown! <= 1) {
+        timer.cancel();
+        _autoPlayCountdown = null;
+        _playNextEpisode();
+      } else {
+        setState(() => _autoPlayCountdown = _autoPlayCountdown! - 1);
+      }
+    });
+  }
+
+  void _playNextEpisode() {
+    if (!_hasNextEpisode) return;
+    int nextSeason = _currentSeason;
+    int nextEpisode = _currentEpisode + 1;
+
+    final currentSeasonItem = _seasons.where((s) => s.seasonNumber == _currentSeason).firstOrNull;
+    final totalEpsInSeason = currentSeasonItem?.episodeCount ?? _episodes.length;
+    if (nextEpisode > totalEpsInSeason) {
+      final nextSeasonItem = _seasons.where((s) => s.seasonNumber > _currentSeason).firstOrNull;
+      if (nextSeasonItem != null) {
+        nextSeason = nextSeasonItem.seasonNumber;
+        nextEpisode = 1;
+      } else {
+        return;
+      }
+    }
+    _playEpisode(season: nextSeason, episode: nextEpisode);
+  }
+
+  Future<void> _playEpisode({required int season, required int episode}) async {
+    _autoPlayTimer?.cancel();
+    setState(() {
+      _isLoadingNextEpisode = true;
+      _loadingNextEpisodeText = 'Loading S$season E$episode...';
+      _autoPlayCountdown = null;
+      _autoPlayDismissed = false;
+    });
+    _saveProgress();
+
+    try {
+      final streams = await MovieBoxApi.instance.getStreams(
+        widget.subjectId,
+        season: season,
+        episode: episode,
+      );
+      if (streams.isEmpty) {
+        if (mounted) {
+          setState(() => _isLoadingNextEpisode = false);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('No streams found for this episode')),
+          );
+        }
+        return;
+      }
+
+      final nextStream = streams.firstWhere(
+        (s) => s.resolution == _currentStream.resolution,
+        orElse: () => streams.first,
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        _currentSeason = season;
+        _currentEpisode = episode;
+        _currentStream = nextStream;
+        final epMatch = _episodes.where((e) => e.episodeNumber == episode).firstOrNull;
+        _currentEpisodeTitle = epMatch?.title;
+      });
+
+      await _initPlayer(seekTo: Duration.zero);
+      _showControlsOverlay();
+    } catch (e) {
+      debugPrint('Error playing next episode: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to load episode: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoadingNextEpisode = false);
+    }
+  }
+
+  void _showEpisodeDrawer() async {
+    _onUserInteraction();
+    if (_seasons.isEmpty) {
+      try {
+        final seasons = await MovieBoxApi.instance.getSeasons(widget.subjectId);
+        _seasons = seasons;
+      } catch (_) {}
+    }
+
+    if (!mounted) return;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1A1A1A),
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) {
+        int activeSeason = _currentSeason;
+        List<EpisodeItem> drawerEpisodes = _episodes;
+        bool loadingEpisodes = false;
+
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            void switchSeason(int newSeason) async {
+              setSheetState(() {
+                activeSeason = newSeason;
+                loadingEpisodes = true;
+              });
+              try {
+                final eps = await MovieBoxApi.instance.getEpisodes(widget.subjectId, newSeason);
+                if (context.mounted) {
+                  setSheetState(() {
+                    drawerEpisodes = eps;
+                    loadingEpisodes = false;
+                  });
+                }
+              } catch (_) {
+                if (context.mounted) setSheetState(() => loadingEpisodes = false);
+              }
+            }
+
+            return SizedBox(
+              height: MediaQuery.of(context).size.height * 0.75,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.video_library, color: _accentRed, size: 20),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Episodes - $_currentTitle',
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const Spacer(),
+                        IconButton(
+                          icon: const Icon(Icons.close, color: Colors.white70),
+                          onPressed: () => Navigator.pop(ctx),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (_seasons.isNotEmpty)
+                    SizedBox(
+                      height: 40,
+                      child: ListView.separated(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        scrollDirection: Axis.horizontal,
+                        itemCount: _seasons.length,
+                        separatorBuilder: (_, _) => const SizedBox(width: 8),
+                        itemBuilder: (_, idx) {
+                          final s = _seasons[idx];
+                          final isSelected = s.seasonNumber == activeSeason;
+                          return TvFocusable(
+                            autofocus: isSelected,
+                            borderRadius: 20,
+                            scaleFactor: 1.05,
+                            onTap: () => switchSeason(s.seasonNumber),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                              decoration: BoxDecoration(
+                                color: isSelected ? _accentRed : Colors.white12,
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Text(
+                                s.title,
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                  fontSize: 12,
+                                ),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                  const SizedBox(height: 12),
+                  const Divider(color: Colors.white12, height: 1),
+                  Expanded(
+                    child: loadingEpisodes
+                        ? const Center(child: CircularProgressIndicator(color: _accentRed))
+                        : drawerEpisodes.isEmpty
+                            ? const Center(child: Text('No episodes found', style: TextStyle(color: Colors.white54)))
+                            : ListView.separated(
+                                padding: const EdgeInsets.all(16),
+                                itemCount: drawerEpisodes.length,
+                                separatorBuilder: (_, _) => const SizedBox(height: 8),
+                                itemBuilder: (_, idx) {
+                                  final ep = drawerEpisodes[idx];
+                                  final isCurrent = ep.seasonNumber == _currentSeason && ep.episodeNumber == _currentEpisode;
+                                  return TvFocusable(
+                                    autofocus: isCurrent,
+                                    borderRadius: 8,
+                                    scaleFactor: 1.02,
+                                    onTap: () {
+                                      Navigator.pop(ctx);
+                                      _playEpisode(season: ep.seasonNumber, episode: ep.episodeNumber);
+                                    },
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                      decoration: BoxDecoration(
+                                        color: isCurrent ? const Color(0x33E50914) : Colors.white.withValues(alpha: 0.05),
+                                        borderRadius: BorderRadius.circular(8),
+                                        border: isCurrent ? Border.all(color: _accentRed) : null,
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          Container(
+                                            width: 36,
+                                            height: 36,
+                                            decoration: BoxDecoration(
+                                              color: isCurrent ? _accentRed : Colors.white10,
+                                              shape: BoxShape.circle,
+                                            ),
+                                            child: Center(
+                                              child: isCurrent
+                                                  ? const Icon(Icons.play_arrow, color: Colors.white, size: 20)
+                                                  : Text(
+                                                      '${ep.episodeNumber}',
+                                                      style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.bold, fontSize: 13),
+                                                    ),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 14),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  ep.title.isNotEmpty ? ep.title : 'Episode ${ep.episodeNumber}',
+                                                  style: TextStyle(
+                                                    color: isCurrent ? _accentRed : Colors.white,
+                                                    fontWeight: isCurrent ? FontWeight.bold : FontWeight.normal,
+                                                    fontSize: 14,
+                                                  ),
+                                                  maxLines: 1,
+                                                  overflow: TextOverflow.ellipsis,
+                                                ),
+                                                if (ep.description != null && ep.description!.isNotEmpty) ...[
+                                                  const SizedBox(height: 2),
+                                                  Text(
+                                                    ep.description!,
+                                                    style: const TextStyle(color: Colors.white54, fontSize: 12),
+                                                    maxLines: 1,
+                                                    overflow: TextOverflow.ellipsis,
+                                                  ),
+                                                ],
+                                              ],
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
 
@@ -871,6 +1260,46 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
                 // ── Overlay controls ─────────────────────────────────────────
                 if (!_hasError) _buildOverlay(),
 
+                // ── Floating seek feedback badge ─────────────────────────────
+                if (_showSeekBadge)
+                  Positioned(
+                    top: 24,
+                    left: 0,
+                    right: 0,
+                    child: Center(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xE61E1E1E),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(color: _accentRed.withValues(alpha: 0.8)),
+                          boxShadow: const [BoxShadow(color: Colors.black54, blurRadius: 8)],
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              _seekBadgeForward ? Icons.fast_forward : Icons.fast_rewind,
+                              color: _accentRed,
+                              size: 18,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              '$_seekBadgeDelta ($_seekBadgeTarget)',
+                              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+
+                // ── Auto-play countdown card ─────────────────────────────────
+                _buildAutoPlayOverlay(),
+
+                // ── Next episode loading blocker ─────────────────────────────
+                _buildLoadingNextEpisodeOverlay(),
+
                 // ── Resume badge overlay ─────────────────────────────────────
                 if (_resumeBannerText != null)
                   Positioned(
@@ -1099,9 +1528,9 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
   // ── Top bar ────────────────────────────────────────────────────────────
 
   Widget _buildTopBar() {
-    final epLabel = widget.isSeries && widget.season > 0
-        ? 'S${widget.season} E${widget.episode}'
-            '${widget.episodeTitle != null ? ' · ${widget.episodeTitle}' : ''}'
+    final epLabel = widget.isSeries && _currentSeason > 0
+        ? 'S$_currentSeason E$_currentEpisode'
+            '${_currentEpisodeTitle != null ? ' · $_currentEpisodeTitle' : ''}'
         : null;
 
     return Container(
@@ -1134,7 +1563,7 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  widget.title,
+                  _currentTitle,
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 15,
@@ -1311,6 +1740,34 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
                 ),
               ),
               const Spacer(),
+              // Episodes drawer button (series only)
+              if (widget.isSeries) ...[
+                TvFocusable(
+                  borderRadius: 4,
+                  scaleFactor: 1.06,
+                  onTap: _showEpisodeDrawer,
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: Colors.white12,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.video_library, color: Colors.white70, size: 12),
+                        SizedBox(width: 4),
+                        Text(
+                          'Episodes',
+                          style: TextStyle(color: Colors.white, fontSize: 11),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+              ],
               // Audio & Language button
               TvFocusable(
                 borderRadius: 4,
@@ -1394,21 +1851,18 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
                   ),
                 ),
               ),
-              // Next episode button (series only)
-              if (widget.isSeries) ...[
+              // Next episode button (series only and when next episode actually exists)
+              if (widget.isSeries && _hasNextEpisode) ...[
                 const SizedBox(width: 8),
                 TvFocusable(
                   borderRadius: 4,
                   scaleFactor: 1.06,
-                  onTap: () {
-                    _saveProgress();
-                    Navigator.pop(context, 'next');
-                  },
+                  onTap: _playNextEpisode,
                   child: Container(
                     padding:
                         const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
                     decoration: BoxDecoration(
-                      color: _accentRed.withValues(alpha: 0.8),
+                      color: _accentRed.withValues(alpha: 0.85),
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: const Row(
@@ -1416,7 +1870,7 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
                       children: [
                         Text('Next',
                             style:
-                                TextStyle(color: Colors.white, fontSize: 11)),
+                                TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
                         SizedBox(width: 4),
                         Icon(Icons.skip_next, color: Colors.white, size: 14),
                       ],
@@ -1428,6 +1882,118 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
           ),
           const SizedBox(height: 2),
         ],
+      ),
+    );
+  }
+
+  // ── Auto-Play Countdown Overlay ───────────────────────────────────────────
+
+  Widget _buildAutoPlayOverlay() {
+    if (_autoPlayCountdown == null || !_hasNextEpisode) return const SizedBox.shrink();
+    return Positioned(
+      bottom: 80,
+      right: 20,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: const Color(0xE61E1E1E),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: _accentRed.withValues(alpha: 0.8), width: 1.5),
+          boxShadow: const [BoxShadow(color: Colors.black87, blurRadius: 16)],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Next episode in $_autoPlayCountdown s',
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'S$_currentSeason E${_currentEpisode + 1}',
+                  style: const TextStyle(color: Colors.white70, fontSize: 11),
+                ),
+              ],
+            ),
+            const SizedBox(width: 14),
+            TvFocusable(
+              autofocus: true,
+              borderRadius: 6,
+              scaleFactor: 1.05,
+              onTap: () {
+                _autoPlayTimer?.cancel();
+                _autoPlayCountdown = null;
+                _playNextEpisode();
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: _accentRed,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: const Text('Play Now', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12)),
+              ),
+            ),
+            const SizedBox(width: 8),
+            TvFocusable(
+              borderRadius: 6,
+              scaleFactor: 1.05,
+              onTap: () {
+                _autoPlayTimer?.cancel();
+                setState(() {
+                  _autoPlayCountdown = null;
+                  _autoPlayDismissed = true;
+                });
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.white12,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: const Text('Cancel', style: TextStyle(color: Colors.white70, fontSize: 12)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── Next Episode Loading Overlay ──────────────────────────────────────────
+
+  Widget _buildLoadingNextEpisodeOverlay() {
+    if (!_isLoadingNextEpisode) return const SizedBox.shrink();
+    return Container(
+      color: Colors.black87,
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+          decoration: BoxDecoration(
+            color: const Color(0xFF1E1E1E),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.white12),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(
+                width: 32,
+                height: 32,
+                child: CircularProgressIndicator(color: _accentRed, strokeWidth: 3),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                _loadingNextEpisodeText ?? 'Loading episode...',
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

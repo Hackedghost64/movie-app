@@ -513,7 +513,9 @@ class _DetailScreenState extends State<DetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (ContentFilterService.instance.isNsfw(widget.item)) {
+    final isBlocked = ContentFilterService.instance.isNsfw(widget.item) ||
+        (_details != null && ContentFilterService.instance.isDetailDataNsfw(_details!));
+    if (isBlocked) {
       return Scaffold(
         backgroundColor: const Color(0xFF0F0F0F),
         appBar: AppBar(backgroundColor: Colors.transparent),

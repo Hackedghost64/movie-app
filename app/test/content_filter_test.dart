@@ -95,4 +95,26 @@ void main() {
     await filter.setFilterEnabled(true);
     expect(filter.isFilterEnabled, isTrue);
   });
+
+  test('Blocks Rx rated anime and nudity/hentai/ecchi content', () async {
+    final filter = ContentFilterService.instance;
+    await filter.init();
+
+    final rxItems = [
+      MediaItem(id: '201', title: 'Overflow', rating: 'Rx'),
+      MediaItem(id: '202', title: 'Kuroinu', rating: 'Rx - Hentai'),
+      MediaItem(id: '203', title: 'Anime Title Uncensored', genre: 'Ecchi, Hentai'),
+      MediaItem(id: '204', title: 'Summer Memories', description: 'Full uncensored nudity and erotic scenes'),
+      MediaItem(id: '205', title: 'Anime OVA', certification: 'Rx'),
+      MediaItem(id: '206', title: 'Secret Desires', certification: 'R18+'),
+    ];
+
+    final filtered = filter.filterMediaList(rxItems);
+    expect(filtered.isEmpty, isTrue);
+
+    // Also verify isDetailDataNsfw
+    expect(filter.isDetailDataNsfw({'title': 'Anime Show', 'rating': 'Rx - Hentai'}), isTrue);
+    expect(filter.isDetailDataNsfw({'title': 'Show with explicit genre', 'genres': 'Hentai, Animation'}), isTrue);
+    expect(filter.isDetailDataNsfw({'title': 'Demon Slayer', 'genres': 'Action, Fantasy', 'rating': 'PG-13'}), isFalse);
+  });
 }

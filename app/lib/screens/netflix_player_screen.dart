@@ -52,6 +52,7 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
   String _errorMessage = '';
 
   late StreamOption _currentStream;
+  late List<StreamOption> _availableStreams;
 
   // ── Playback Target (Mutable for in-place episode switching) ───────────────
   late int _currentSeason;
@@ -141,6 +142,7 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
   void initState() {
     super.initState();
     _currentStream = widget.stream;
+    _availableStreams = List<StreamOption>.from(widget.availableStreams);
     _currentSeason = widget.season;
     _currentEpisode = widget.episode;
     _currentEpisodeTitle = widget.episodeTitle;
@@ -200,10 +202,18 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
     try {
       final seasons = await MovieBoxApi.instance.getSeasons(widget.subjectId);
       if (mounted) {
+        seasons.sort((a, b) => a.seasonNumber.compareTo(b.seasonNumber));
         setState(() => _seasons = seasons);
-        final eps = await MovieBoxApi.instance.getEpisodes(widget.subjectId, _currentSeason);
+        final targetSeason = _currentSeason > 0
+            ? _currentSeason
+            : (seasons.isNotEmpty ? seasons.first.seasonNumber : 1);
+        final eps = await MovieBoxApi.instance.getEpisodes(widget.subjectId, targetSeason);
         if (mounted) {
-          setState(() => _episodes = eps);
+          eps.sort((a, b) => a.episodeNumber.compareTo(b.episodeNumber));
+          setState(() {
+            _episodes = eps;
+            if (_currentSeason <= 0) _currentSeason = targetSeason;
+          });
         }
       }
     } catch (_) {}
@@ -446,12 +456,20 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
   bool get _hasNextEpisode {
     if (!widget.isSeries) return false;
     if (_seasons.isEmpty && _episodes.isEmpty) {
-      return _currentEpisode > 0;
+      return true;
     }
-    final currentSeasonItem = _seasons.where((s) => s.seasonNumber == _currentSeason).firstOrNull;
-    final totalEpsInSeason = currentSeasonItem?.episodeCount ?? _episodes.length;
+    final sortedSeasons = List<SeasonItem>.from(_seasons)..sort((a, b) => a.seasonNumber.compareTo(b.seasonNumber));
+    if (_episodes.isNotEmpty) {
+      final sortedEps = List<EpisodeItem>.from(_episodes)..sort((a, b) => a.episodeNumber.compareTo(b.episodeNumber));
+      final currIdx = sortedEps.indexWhere((e) => e.episodeNumber == _currentEpisode);
+      if (currIdx != -1 && currIdx + 1 < sortedEps.length) return true;
+      final nextSeason = sortedSeasons.where((s) => s.seasonNumber > _currentSeason).firstOrNull;
+      return nextSeason != null;
+    }
+    final currentSeasonItem = sortedSeasons.where((s) => s.seasonNumber == _currentSeason).firstOrNull;
+    final totalEpsInSeason = currentSeasonItem?.episodeCount ?? 0;
     if (_currentEpisode < totalEpsInSeason) return true;
-    final nextSeasonItem = _seasons.where((s) => s.seasonNumber > _currentSeason).firstOrNull;
+    final nextSeasonItem = sortedSeasons.where((s) => s.seasonNumber > _currentSeason).firstOrNull;
     return nextSeasonItem != null;
   }
 
@@ -477,23 +495,82 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
     });
   }
 
-  void _playNextEpisode() {
-    if (!_hasNextEpisode) return;
-    int nextSeason = _currentSeason;
-    int nextEpisode = _currentEpisode + 1;
+  Future<void> _playNextEpisode() async {
+    if (!widget.isSeries) return;
 
-    final currentSeasonItem = _seasons.where((s) => s.seasonNumber == _currentSeason).firstOrNull;
-    final totalEpsInSeason = currentSeasonItem?.episodeCount ?? _episodes.length;
-    if (nextEpisode > totalEpsInSeason) {
-      final nextSeasonItem = _seasons.where((s) => s.seasonNumber > _currentSeason).firstOrNull;
-      if (nextSeasonItem != null) {
-        nextSeason = nextSeasonItem.seasonNumber;
-        nextEpisode = 1;
+    if (_seasons.isEmpty || _episodes.isEmpty) {
+      setState(() {
+        _isLoadingNextEpisode = true;
+        _loadingNextEpisodeText = 'Loading episodes...';
+      });
+      await _loadSeriesStructure();
+    }
+
+    int activeSeason = _currentSeason;
+    if (activeSeason <= 0) {
+      if (_seasons.isNotEmpty) {
+        activeSeason = _seasons.first.seasonNumber;
       } else {
-        return;
+        activeSeason = 1;
       }
     }
-    _playEpisode(season: nextSeason, episode: nextEpisode);
+
+    final sortedSeasons = List<SeasonItem>.from(_seasons)..sort((a, b) => a.seasonNumber.compareTo(b.seasonNumber));
+    int nextSeason = activeSeason;
+    int nextEpisode = _currentEpisode + 1;
+
+    if (_episodes.isNotEmpty) {
+      final sortedEps = List<EpisodeItem>.from(_episodes)..sort((a, b) => a.episodeNumber.compareTo(b.episodeNumber));
+      final currIdx = sortedEps.indexWhere((e) => e.episodeNumber == _currentEpisode);
+      if (currIdx != -1 && currIdx + 1 < sortedEps.length) {
+        nextEpisode = sortedEps[currIdx + 1].episodeNumber;
+      } else {
+        // Last episode of current season, find next season
+        final nextSeasonItem = sortedSeasons.where((s) => s.seasonNumber > activeSeason).firstOrNull;
+        if (nextSeasonItem != null) {
+          nextSeason = nextSeasonItem.seasonNumber;
+          try {
+            final nextEps = await MovieBoxApi.instance.getEpisodes(widget.subjectId, nextSeason);
+            if (nextEps.isNotEmpty) {
+              nextEps.sort((a, b) => a.episodeNumber.compareTo(b.episodeNumber));
+              nextEpisode = nextEps.first.episodeNumber;
+            } else {
+              nextEpisode = 1;
+            }
+          } catch (_) {
+            nextEpisode = 1;
+          }
+        } else {
+          if (mounted) {
+            setState(() => _isLoadingNextEpisode = false);
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('You have reached the last episode')),
+            );
+          }
+          return;
+        }
+      }
+    } else {
+      final currentSeasonItem = sortedSeasons.where((s) => s.seasonNumber == activeSeason).firstOrNull;
+      final totalEpsInSeason = currentSeasonItem?.episodeCount ?? 0;
+      if (totalEpsInSeason > 0 && nextEpisode > totalEpsInSeason) {
+        final nextSeasonItem = sortedSeasons.where((s) => s.seasonNumber > activeSeason).firstOrNull;
+        if (nextSeasonItem != null) {
+          nextSeason = nextSeasonItem.seasonNumber;
+          nextEpisode = 1;
+        } else {
+          if (mounted) {
+            setState(() => _isLoadingNextEpisode = false);
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('You have reached the last episode')),
+            );
+          }
+          return;
+        }
+      }
+    }
+
+    await _playEpisode(season: nextSeason, episode: nextEpisode);
   }
 
   Future<void> _playEpisode({required int season, required int episode}) async {
@@ -507,16 +584,26 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
     _saveProgress();
 
     try {
-      final streams = await MovieBoxApi.instance.getStreams(
+      var streams = await MovieBoxApi.instance.getStreams(
         widget.subjectId,
         season: season,
         episode: episode,
       );
+
+      // Fallback 1: If streams empty and season == 0, try season 1
+      if (streams.isEmpty && season == 0) {
+        streams = await MovieBoxApi.instance.getStreams(
+          widget.subjectId,
+          season: 1,
+          episode: episode == 0 ? 1 : episode,
+        );
+      }
+
       if (streams.isEmpty) {
         if (mounted) {
           setState(() => _isLoadingNextEpisode = false);
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('No streams found for this episode')),
+            SnackBar(content: Text('No streams found for Season $season Episode $episode')),
           );
         }
         return;
@@ -529,12 +616,25 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
 
       if (!mounted) return;
 
+      // Update episodes list if season changed
+      if (season != _currentSeason) {
+        try {
+          final newEps = await MovieBoxApi.instance.getEpisodes(widget.subjectId, season);
+          if (mounted && newEps.isNotEmpty) {
+            newEps.sort((a, b) => a.episodeNumber.compareTo(b.episodeNumber));
+            _episodes = newEps;
+          }
+        } catch (_) {}
+      }
+
+      final epMatch = _episodes.where((e) => e.episodeNumber == episode).firstOrNull;
+
       setState(() {
         _currentSeason = season;
         _currentEpisode = episode;
         _currentStream = nextStream;
-        final epMatch = _episodes.where((e) => e.episodeNumber == episode).firstOrNull;
-        _currentEpisodeTitle = epMatch?.title;
+        _availableStreams = streams;
+        _currentEpisodeTitle = epMatch?.title ?? 'Episode $episode';
       });
 
       await _initPlayer(seekTo: Duration.zero);
@@ -556,6 +656,7 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
     if (_seasons.isEmpty) {
       try {
         final seasons = await MovieBoxApi.instance.getSeasons(widget.subjectId);
+        seasons.sort((a, b) => a.seasonNumber.compareTo(b.seasonNumber));
         _seasons = seasons;
       } catch (_) {}
     }
@@ -891,7 +992,7 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
                 ),
               ),
             ),
-            ...widget.availableStreams.asMap().entries.map(
+            ..._availableStreams.asMap().entries.map(
               (entry) {
                 final i = entry.key;
                 final s = entry.value;
@@ -899,7 +1000,7 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
                 return Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                   child: TvFocusable(
-                    autofocus: isSelected || (i == 0 && !widget.availableStreams.any((x) => x.url == _currentStream.url)),
+                    autofocus: isSelected || (i == 0 && !_availableStreams.any((x) => x.url == _currentStream.url)),
                     borderRadius: 8,
                     scaleFactor: 1.03,
                     onTap: () => Navigator.pop(ctx, s),

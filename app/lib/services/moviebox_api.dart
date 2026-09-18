@@ -471,6 +471,7 @@ class MovieBoxApi {
           ));
         }
       }
+      seasons.sort((a, b) => a.seasonNumber.compareTo(b.seasonNumber));
       return seasons;
     }
   }
@@ -483,12 +484,14 @@ class MovieBoxApi {
         "end": 100,
       });
       final list = res["data"]?["episodes"] as List? ?? [];
-      return list.map((e) => EpisodeItem(
+      final eps = list.map((e) => EpisodeItem(
         episodeNumber: e["episode"] ?? e["ep"] ?? 1,
         seasonNumber: seasonNumber,
         title: e["title"] ?? "Episode ${e['episode'] ?? e['ep'] ?? 1}",
         description: e["desc"] ?? "",
       )).toList();
+      eps.sort((a, b) => a.episodeNumber.compareTo(b.episodeNumber));
+      return eps;
     } else {
       final res = await _requestDirect("GET", "/wefeed-mobile-bff/subject-api/season-info", params: {
         "host": defaultApiHost,
@@ -529,6 +532,7 @@ class MovieBoxApi {
           }
         }
       }
+      episodes.sort((a, b) => a.episodeNumber.compareTo(b.episodeNumber));
       return episodes;
     }
   }
@@ -554,15 +558,63 @@ class MovieBoxApi {
       }
       return streams;
     } else {
-      final res = await _requestDirect("GET", "/wefeed-mobile-bff/subject-api/play-info", params: {
+      var res = await _requestDirect("GET", "/wefeed-mobile-bff/subject-api/play-info", params: {
         "host": defaultApiHost,
         "subjectId": subjectId,
         "se": season.toString(),
         "ep": episode.toString(),
       });
 
+      var rawStreams = res["data"]?["streams"] as List? ?? [];
+
+      // Auto-retry with refreshed session token if empty and response indicated error or empty data
+      if (rawStreams.isEmpty && (res["code"] != 0 || res["data"] == null)) {
+        try {
+          _sessionToken = null;
+          await _bootstrapSession(force: true);
+          res = await _requestDirectRaw("GET", "/wefeed-mobile-bff/subject-api/play-info", params: {
+            "host": defaultApiHost,
+            "subjectId": subjectId,
+            "se": season.toString(),
+            "ep": episode.toString(),
+          });
+          rawStreams = res["data"]?["streams"] as List? ?? [];
+        } catch (_) {}
+      }
+
+      // Fallback 1: If season == 0 returned 0 streams, try season = 1
+      if (rawStreams.isEmpty && season == 0) {
+        try {
+          final fbRes = await _requestDirectRaw("GET", "/wefeed-mobile-bff/subject-api/play-info", params: {
+            "host": defaultApiHost,
+            "subjectId": subjectId,
+            "se": "1",
+            "ep": episode == 0 ? "1" : episode.toString(),
+          });
+          final fbStreams = fbRes["data"]?["streams"] as List? ?? [];
+          if (fbStreams.isNotEmpty) {
+            rawStreams = fbStreams;
+          }
+        } catch (_) {}
+      }
+
+      // Fallback 2: If season > 0 and episode == 0 returned 0 streams, try episode = 1
+      if (rawStreams.isEmpty && season > 0 && episode == 0) {
+        try {
+          final fbRes = await _requestDirectRaw("GET", "/wefeed-mobile-bff/subject-api/play-info", params: {
+            "host": defaultApiHost,
+            "subjectId": subjectId,
+            "se": season.toString(),
+            "ep": "1",
+          });
+          final fbStreams = fbRes["data"]?["streams"] as List? ?? [];
+          if (fbStreams.isNotEmpty) {
+            rawStreams = fbStreams;
+          }
+        } catch (_) {}
+      }
+
       final List<StreamOption> streams = [];
-      final rawStreams = res["data"]?["streams"] as List? ?? [];
       final seenUrls = <String>{};
 
       for (var s in rawStreams) {

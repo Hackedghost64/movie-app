@@ -152,7 +152,59 @@ class _DetailScreenState extends State<DetailScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (!isSeries) ...[
+        if (isSeries) ...[
+          Builder(
+            builder: (context) {
+              final progress = StorageService.instance.getWatchProgress(widget.item.id);
+              final hasProgress = progress != null && progress.season > 0;
+              final label = hasProgress
+                  ? "Resume: S${progress.season} E${progress.episode}"
+                  : "Watch Series (S1 E1)";
+              final targetSeason = hasProgress
+                  ? progress.season
+                  : (_selectedSeason > 0 ? _selectedSeason : 1);
+              final targetEpisode = hasProgress ? progress.episode : 1;
+
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 12.0),
+                child: TvFocusable(
+                  autofocus: true,
+                  borderRadius: 8,
+                  scaleFactor: 1.03,
+                  onTap: () => _onPlayTapped(
+                    season: targetSeason,
+                    episode: targetEpisode,
+                    episodeTitle: hasProgress ? progress.episodeTitle : null,
+                  ),
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE50914),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    alignment: Alignment.center,
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(Icons.play_arrow, color: Colors.white),
+                        const SizedBox(width: 8),
+                        Text(
+                          label,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 15,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ] else ...[
           Row(
             children: [
               Expanded(
@@ -205,7 +257,7 @@ class _DetailScreenState extends State<DetailScreen> {
           const SizedBox(height: 12),
         ],
         TvFocusable(
-          autofocus: isSeries,
+          autofocus: false,
           borderRadius: 8,
           scaleFactor: 1.02,
           onTap: () async {
@@ -248,44 +300,44 @@ class _DetailScreenState extends State<DetailScreen> {
         const Text("Episodes", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
         const SizedBox(height: 12),
         if (_seasons.length > 1)
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: _seasons.map((s) {
+          Container(
+            height: 38,
+            margin: const EdgeInsets.only(bottom: 16),
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: _seasons.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 8),
+              itemBuilder: (ctx, i) {
+                final s = _seasons[i];
                 final isSelected = s.seasonNumber == _selectedSeason;
-                return Padding(
-                  padding: const EdgeInsets.only(right: 8.0),
-                  child: TvFocusable(
-                    borderRadius: 18,
-                    scaleFactor: 1.05,
-                    onTap: () => _loadEpisodes(s.seasonNumber),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: isSelected ? const Color(0xFFE50914) : const Color(0xFF252525),
-                        borderRadius: BorderRadius.circular(18),
-                      ),
-                      child: Text(
-                        s.title,
-                        style: TextStyle(
-                          color: isSelected ? Colors.white : Colors.white70,
-                          fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                        ),
+                return TvFocusable(
+                  autofocus: isSelected,
+                  borderRadius: 20,
+                  scaleFactor: 1.05,
+                  onTap: () => _loadEpisodes(s.seasonNumber),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: isSelected ? const Color(0xFFE50914) : Colors.white12,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      s.title,
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                        fontSize: 13,
                       ),
                     ),
                   ),
                 );
-              }).toList(),
+              },
             ),
           ),
-        const SizedBox(height: 12),
         if (_isLoadingEpisodes)
           const Center(child: Padding(padding: EdgeInsets.all(24.0), child: CircularProgressIndicator(color: Color(0xFFE50914))))
         else if (_episodes.isEmpty)
-          const Padding(
-            padding: EdgeInsets.all(16.0),
-            child: Text("No episodes found for this season.", style: TextStyle(color: Colors.white54)),
-          )
+          const Text("No episodes found", style: TextStyle(color: Colors.white54))
         else
           ListView.builder(
             shrinkWrap: true,
@@ -293,6 +345,13 @@ class _DetailScreenState extends State<DetailScreen> {
             itemCount: _episodes.length,
             itemBuilder: (ctx, i) {
               final ep = _episodes[i];
+              final saved = StorageService.instance.getWatchProgress(widget.item.id);
+              final isThisEp = saved != null &&
+                  saved.season == ep.seasonNumber &&
+                  saved.episode == ep.episodeNumber;
+              final isWatched = isThisEp && saved.progressPercentage >= 0.9;
+              final progressFraction = isThisEp ? saved.progressPercentage.clamp(0.0, 1.0) : 0.0;
+
               return Padding(
                 padding: const EdgeInsets.only(bottom: 8.0),
                 child: TvFocusable(
@@ -308,31 +367,99 @@ class _DetailScreenState extends State<DetailScreen> {
                     color: const Color(0xFF1E1E1E),
                     margin: EdgeInsets.zero,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    child: ListTile(
-                      leading: CircleAvatar(
-                        backgroundColor: const Color(0x33E50914),
-                        child: Text(
-                          "${ep.episodeNumber}",
-                          style: const TextStyle(color: Color(0xFFE50914), fontWeight: FontWeight.bold),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        ListTile(
+                          leading: CircleAvatar(
+                            backgroundColor: isWatched
+                                ? const Color(0x334CAF50)
+                                : const Color(0x33E50914),
+                            child: isWatched
+                                ? const Icon(Icons.check, color: Color(0xFF4CAF50), size: 18)
+                                : Text(
+                                    "${ep.episodeNumber}",
+                                    style: const TextStyle(
+                                      color: Color(0xFFE50914),
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                          ),
+                          title: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  ep.title,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              ),
+                              if (isWatched)
+                                Container(
+                                  margin: const EdgeInsets.only(left: 6),
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0x334CAF50),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: const Text(
+                                    'WATCHED',
+                                    style: TextStyle(
+                                      color: Color(0xFF4CAF50),
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                          subtitle: ep.description?.isNotEmpty == true
+                              ? Text(
+                                  ep.description!,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(color: Colors.white54, fontSize: 12),
+                                )
+                              : null,
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.download, color: Colors.white70, size: 20),
+                                onPressed: () => _onDownloadTapped(
+                                  season: ep.seasonNumber,
+                                  episode: ep.episodeNumber,
+                                  episodeTitle: ep.title,
+                                ),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.play_circle_fill, color: Color(0xFFE50914), size: 28),
+                                onPressed: () => _onPlayTapped(
+                                  season: ep.seasonNumber,
+                                  episode: ep.episodeNumber,
+                                  episodeTitle: ep.title,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                      title: Text(ep.title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14)),
-                      subtitle: ep.description?.isNotEmpty == true
-                          ? Text(ep.description!, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: Colors.white54, fontSize: 12))
-                          : null,
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          IconButton(
-                            icon: const Icon(Icons.download, color: Colors.white70, size: 20),
-                            onPressed: () => _onDownloadTapped(season: ep.seasonNumber, episode: ep.episodeNumber, episodeTitle: ep.title),
+                        if (isThisEp && progressFraction > 0.02 && !isWatched)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16.0).copyWith(bottom: 6),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(2),
+                              child: LinearProgressIndicator(
+                                value: progressFraction,
+                                minHeight: 3,
+                                backgroundColor: Colors.white12,
+                                valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFE50914)),
+                              ),
+                            ),
                           ),
-                          IconButton(
-                            icon: const Icon(Icons.play_circle_fill, color: Color(0xFFE50914), size: 28),
-                            onPressed: () => _onPlayTapped(season: ep.seasonNumber, episode: ep.episodeNumber, episodeTitle: ep.title),
-                          ),
-                        ],
-                      ),
+                      ],
                     ),
                   ),
                 ),

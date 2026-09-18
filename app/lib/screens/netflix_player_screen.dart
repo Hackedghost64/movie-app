@@ -473,6 +473,84 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
     return nextSeasonItem != null;
   }
 
+  bool get _hasPreviousEpisode {
+    if (!widget.isSeries) return false;
+    final sortedSeasons = List<SeasonItem>.from(_seasons)..sort((a, b) => a.seasonNumber.compareTo(b.seasonNumber));
+    if (_episodes.isNotEmpty) {
+      final sortedEps = List<EpisodeItem>.from(_episodes)..sort((a, b) => a.episodeNumber.compareTo(b.episodeNumber));
+      final currIdx = sortedEps.indexWhere((e) => e.episodeNumber == _currentEpisode);
+      if (currIdx > 0) return true;
+      final prevSeason = sortedSeasons.where((s) => s.seasonNumber < _currentSeason).lastOrNull;
+      return prevSeason != null;
+    }
+    if (_currentEpisode > 1) return true;
+    final prevSeason = sortedSeasons.where((s) => s.seasonNumber < _currentSeason).lastOrNull;
+    return prevSeason != null;
+  }
+
+  Future<void> _playPreviousEpisode() async {
+    if (!widget.isSeries || !_hasPreviousEpisode) return;
+
+    if (_seasons.isEmpty || _episodes.isEmpty) {
+      setState(() {
+        _isLoadingNextEpisode = true;
+        _loadingNextEpisodeText = 'Loading episodes...';
+      });
+      await _loadSeriesStructure();
+    }
+
+    int activeSeason = _currentSeason;
+    if (activeSeason <= 0) {
+      if (_seasons.isNotEmpty) {
+        activeSeason = _seasons.first.seasonNumber;
+      } else {
+        activeSeason = 1;
+      }
+    }
+
+    final sortedSeasons = List<SeasonItem>.from(_seasons)..sort((a, b) => a.seasonNumber.compareTo(b.seasonNumber));
+    int prevSeason = activeSeason;
+    int prevEpisode = _currentEpisode - 1;
+
+    if (_episodes.isNotEmpty) {
+      final sortedEps = List<EpisodeItem>.from(_episodes)..sort((a, b) => a.episodeNumber.compareTo(b.episodeNumber));
+      final currIdx = sortedEps.indexWhere((e) => e.episodeNumber == _currentEpisode);
+      if (currIdx > 0) {
+        prevEpisode = sortedEps[currIdx - 1].episodeNumber;
+      } else {
+        final prevSeasonItem = sortedSeasons.where((s) => s.seasonNumber < activeSeason).lastOrNull;
+        if (prevSeasonItem != null) {
+          prevSeason = prevSeasonItem.seasonNumber;
+          try {
+            final prevEps = await MovieBoxApi.instance.getEpisodes(widget.subjectId, prevSeason);
+            if (prevEps.isNotEmpty) {
+              prevEps.sort((a, b) => a.episodeNumber.compareTo(b.episodeNumber));
+              prevEpisode = prevEps.last.episodeNumber;
+            } else {
+              prevEpisode = prevSeasonItem.episodeCount;
+            }
+          } catch (_) {
+            prevEpisode = prevSeasonItem.episodeCount;
+          }
+        } else {
+          return;
+        }
+      }
+    } else {
+      if (prevEpisode < 1) {
+        final prevSeasonItem = sortedSeasons.where((s) => s.seasonNumber < activeSeason).lastOrNull;
+        if (prevSeasonItem != null) {
+          prevSeason = prevSeasonItem.seasonNumber;
+          prevEpisode = prevSeasonItem.episodeCount;
+        } else {
+          return;
+        }
+      }
+    }
+
+    await _playEpisode(season: prevSeason, episode: prevEpisode);
+  }
+
   void _startAutoPlayCountdown() {
     _autoPlayCountdown = 10;
     _autoPlayTimer?.cancel();
@@ -1257,6 +1335,26 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
       return KeyEventResult.handled;
     }
 
+    if (key == LogicalKeyboardKey.mediaStop) {
+      _saveProgress();
+      Navigator.of(context).pop();
+      return KeyEventResult.handled;
+    }
+
+    if (key == LogicalKeyboardKey.mediaTrackNext) {
+      if (widget.isSeries && _hasNextEpisode) {
+        _playNextEpisode();
+        return KeyEventResult.handled;
+      }
+    }
+
+    if (key == LogicalKeyboardKey.mediaTrackPrevious) {
+      if (widget.isSeries && _hasPreviousEpisode) {
+        _playPreviousEpisode();
+        return KeyEventResult.handled;
+      }
+    }
+
     if (key == LogicalKeyboardKey.mediaRewind) {
       _doubleTapSeek(forward: false);
       return KeyEventResult.handled;
@@ -1279,12 +1377,22 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
       }
 
       if (key == LogicalKeyboardKey.arrowLeft) {
-        _doubleTapSeek(forward: false);
+        // Fast seek if user is holding button down (repeat event)
+        if (event is KeyRepeatEvent) {
+          _seekRelative(const Duration(seconds: -30));
+        } else {
+          _doubleTapSeek(forward: false);
+        }
         return KeyEventResult.handled;
       }
 
       if (key == LogicalKeyboardKey.arrowRight) {
-        _doubleTapSeek(forward: true);
+        // Fast seek if user is holding button down (repeat event)
+        if (event is KeyRepeatEvent) {
+          _seekRelative(const Duration(seconds: 30));
+        } else {
+          _doubleTapSeek(forward: true);
+        }
         return KeyEventResult.handled;
       }
 
@@ -1952,6 +2060,33 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
                   ),
                 ),
               ),
+              // Previous episode button (series only and when previous episode actually exists)
+              if (widget.isSeries && _hasPreviousEpisode) ...[
+                const SizedBox(width: 8),
+                TvFocusable(
+                  borderRadius: 4,
+                  scaleFactor: 1.06,
+                  onTap: _playPreviousEpisode,
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: Colors.white12,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.skip_previous, color: Colors.white, size: 14),
+                        SizedBox(width: 4),
+                        Text('Prev',
+                            style:
+                                TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
               // Next episode button (series only and when next episode actually exists)
               if (widget.isSeries && _hasNextEpisode) ...[
                 const SizedBox(width: 8),

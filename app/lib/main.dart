@@ -3,10 +3,17 @@ import 'package:flutter/services.dart';
 import 'services/moviebox_api.dart';
 import 'services/storage_service.dart';
 import 'services/content_filter_service.dart';
+import 'services/tv_mode_service.dart';
+import 'services/local_stream_relay.dart';
 import 'screens/main_nav_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  try {
+    await LocalStreamRelay.instance.start();
+  } catch (e) {
+    debugPrint("Failed to initialize LocalStreamRelay: $e");
+  }
   try {
     await MovieBoxApi.instance.init();
   } catch (e) {
@@ -21,6 +28,11 @@ void main() async {
     await ContentFilterService.instance.init();
   } catch (e) {
     debugPrint("Failed to initialize ContentFilterService: $e");
+  }
+  try {
+    await TvModeService.instance.init();
+  } catch (e) {
+    debugPrint("Failed to initialize TvModeService: $e");
   }
   runApp(const MBXApp());
 }
@@ -44,16 +56,16 @@ class MBXApp extends StatelessWidget {
       darkTheme: ThemeData(
         useMaterial3: true,
         brightness: Brightness.dark,
-        scaffoldBackgroundColor: const Color(0xFF0F0F0F),
+        scaffoldBackgroundColor: const Color(0xFF090A0E),
         colorScheme: const ColorScheme.dark(
           primary: Color(0xFFE50914),
           onPrimary: Colors.white,
-          secondary: Color(0xFFB81D24),
-          surface: Color(0xFF1E1E1E),
+          secondary: Color(0xFFFF2A36),
+          surface: Color(0xFF141622),
           onSurface: Colors.white,
         ),
         appBarTheme: const AppBarTheme(
-          backgroundColor: Color(0xFF0F0F0F),
+          backgroundColor: Color(0xFF090A0E),
           elevation: 0,
           titleTextStyle: TextStyle(
             color: Colors.white,
@@ -63,9 +75,9 @@ class MBXApp extends StatelessWidget {
           iconTheme: IconThemeData(color: Colors.white),
         ),
         cardTheme: CardThemeData(
-          color: const Color(0xFF1E1E1E),
+          color: const Color(0xFF141622),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(14),
           ),
         ),
       ),

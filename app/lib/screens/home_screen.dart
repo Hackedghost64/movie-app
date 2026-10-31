@@ -1,14 +1,14 @@
 import 'package:flutter/material.dart';
-import '../widgets/tv_focusable.dart';
+import 'package:flutter/services.dart';
 import '../models/media_models.dart';
 import '../models/storage_models.dart';
 import '../services/moviebox_api.dart';
 import '../services/storage_service.dart';
 import '../services/content_filter_service.dart';
-import 'continue_watching_screen.dart';
+import '../services/tv_mode_service.dart';
 import 'detail_screen.dart';
 import 'netflix_player_screen.dart';
-import 'watchlist_screen.dart';
+import 'my_space_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -42,18 +42,29 @@ class _HomeScreenState extends State<HomeScreen> {
     "Documentary",
   ];
 
+  static const _bg = Color(0xFF090A0E);
+  static const _surface = Color(0xFF141622);
+  static const _cardBorder = Color(0x1FFFFFFF);
+  static const _accentRed = Color(0xFFE50914);
+
   @override
   void initState() {
     super.initState();
     _loadTrending();
     StorageService.instance.addListener(_onStorageChanged);
+    TvModeService.instance.addListener(_onTvModeChanged);
     _onStorageChanged();
   }
 
   @override
   void dispose() {
     StorageService.instance.removeListener(_onStorageChanged);
+    TvModeService.instance.removeListener(_onTvModeChanged);
     super.dispose();
+  }
+
+  void _onTvModeChanged() {
+    if (mounted) setState(() {});
   }
 
   void _onStorageChanged() {
@@ -69,7 +80,6 @@ class _HomeScreenState extends State<HomeScreen> {
     try {
       final items = await MovieBoxApi.instance.getTopRank();
       if (items.isEmpty) {
-        // Fallback search to populate trending
         final fallback = await MovieBoxApi.instance.search("Avatar");
         _trending = fallback;
       } else {
@@ -85,6 +95,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _selectCategory(String category) async {
     if (_selectedCategory == category && !_isLoadingTrending) return;
+    HapticFeedback.selectionClick();
     setState(() {
       _selectedCategory = category;
       _isLoadingTrending = true;
@@ -115,7 +126,48 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  void _playMediaItem(MediaItem item) async {
+    HapticFeedback.lightImpact();
+    // Quick progress indicator
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text("Loading ${item.title}..."),
+        duration: const Duration(seconds: 1),
+        backgroundColor: const Color(0xFF1E1E1E),
+      ),
+    );
 
+    try {
+      final streams = await MovieBoxApi.instance.getStreams(item.id);
+      if (streams.isNotEmpty && mounted) {
+        final topStream = streams.first;
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => NetflixPlayerScreen(
+              subjectId: item.id,
+              title: item.title,
+              poster: item.poster,
+              season: 0,
+              episode: 0,
+              stream: topStream,
+              availableStreams: streams,
+              isSeries: item.type == 2,
+            ),
+          ),
+        );
+        return;
+      }
+    } catch (_) {}
+
+    // Fallback: navigate to details screen if direct play fails
+    if (mounted) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => DetailScreen(item: item)),
+      );
+    }
+  }
 
   void _showSettingsDialog() {
     final api = MovieBoxApi.instance;
@@ -129,13 +181,13 @@ class _HomeScreenState extends State<HomeScreen> {
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return AlertDialog(
-              backgroundColor: const Color(0xFF1E1E1E),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              backgroundColor: const Color(0xFF181A26),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
               title: const Row(
                 children: [
-                  Icon(Icons.settings, color: Colors.amber),
-                  SizedBox(width: 8),
-                  Text("Connection Mode", style: TextStyle(color: Colors.white, fontSize: 18)),
+                  Icon(Icons.tune_rounded, color: Color(0xFFE50914)),
+                  SizedBox(width: 10),
+                  Text("Preferences", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
                 ],
               ),
               content: SingleChildScrollView(
@@ -144,78 +196,82 @@ class _HomeScreenState extends State<HomeScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
-                      "Choose how this app communicates with MovieBox:",
-                      style: TextStyle(color: Colors.white70, fontSize: 13),
+                      "Connection Mode:",
+                      style: TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.bold),
                     ),
-                    const SizedBox(height: 12),
-                    // ignore: deprecated_member_use
-                    RadioListTile<bool>(
-                      value: false,
-                      // ignore: deprecated_member_use
+                    const SizedBox(height: 8),
+                    RadioGroup<bool>(
                       groupValue: gateway,
-                      activeColor: const Color(0xFFE50914),
-                      title: const Text("Direct Mode (Standalone)", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
-                      subtitle: const Text("Connects directly using embedded signatures. No computer or server needed.", style: TextStyle(color: Colors.white54, fontSize: 12)),
-                      // ignore: deprecated_member_use
-                      onChanged: (v) => setDialogState(() => gateway = v!),
-                    ),
-                    // ignore: deprecated_member_use
-                    RadioListTile<bool>(
-                      value: true,
-                      // ignore: deprecated_member_use
-                      groupValue: gateway,
-                      activeColor: const Color(0xFFE50914),
-                      title: const Text("Gateway Mode (Custom Server)", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14)),
-                      subtitle: const Text("Routes calls through your local or remote MBX wrapper server.", style: TextStyle(color: Colors.white54, fontSize: 12)),
-                      // ignore: deprecated_member_use
-                      onChanged: (v) => setDialogState(() => gateway = v!),
+                      onChanged: (v) => setDialogState(() => gateway = v ?? false),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          RadioListTile<bool>(
+                            contentPadding: EdgeInsets.zero,
+                            value: false,
+                            activeColor: _accentRed,
+                            title: const Text("Direct Standalone (Recommended)", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+                            subtitle: const Text("Zero server setup required. Direct fast CDN access.", style: TextStyle(color: Colors.white54, fontSize: 11)),
+                          ),
+                          RadioListTile<bool>(
+                            contentPadding: EdgeInsets.zero,
+                            value: true,
+                            activeColor: _accentRed,
+                            title: const Text("Gateway Server Mode", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+                            subtitle: const Text("Route through custom proxy/wrapper server.", style: TextStyle(color: Colors.white54, fontSize: 11)),
+                          ),
+                        ],
+                      ),
                     ),
                     if (gateway) ...[
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 8),
                       TextField(
                         controller: urlController,
-                        style: const TextStyle(color: Colors.white),
-                        decoration: const InputDecoration(
+                        style: const TextStyle(color: Colors.white, fontSize: 13),
+                        decoration: InputDecoration(
                           labelText: "Gateway URL",
-                          labelStyle: TextStyle(color: Colors.amber),
+                          labelStyle: const TextStyle(color: _accentRed),
                           hintText: "http://10.0.2.2:8399",
-                          hintStyle: TextStyle(color: Colors.white24),
-                          border: OutlineInputBorder(),
+                          hintStyle: const TextStyle(color: Colors.white24),
+                          filled: true,
+                          fillColor: Colors.black26,
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                           isDense: true,
                         ),
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 6),
                       TextField(
                         controller: keyController,
-                        style: const TextStyle(color: Colors.white),
-                        decoration: const InputDecoration(
+                        style: const TextStyle(color: Colors.white, fontSize: 13),
+                        decoration: InputDecoration(
                           labelText: "API Key (optional)",
-                          labelStyle: TextStyle(color: Colors.amber),
-                          border: OutlineInputBorder(),
+                          labelStyle: const TextStyle(color: _accentRed),
+                          filled: true,
+                          fillColor: Colors.black26,
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                           isDense: true,
                         ),
                       ),
                     ],
                     const SizedBox(height: 12),
-                    const Divider(color: Colors.white24),
+                    const Divider(color: Colors.white12),
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
                       value: ContentFilterService.instance.isFilterEnabled,
-                      // ignore: deprecated_member_use
-                      activeColor: const Color(0xFFE50914),
+                      activeThumbColor: _accentRed,
                       title: const Row(
                         children: [
-                          Icon(Icons.shield, color: Color(0xFFE50914), size: 18),
+                          Icon(Icons.shield_rounded, color: Color(0xFF4CAF50), size: 18),
                           SizedBox(width: 8),
                           Text(
-                            "Family Safe (NSFW Filter)",
-                            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                            "Family Safe Filter",
+                            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
                           ),
                         ],
                       ),
                       subtitle: const Text(
-                        "Strictly blocks adult, 18+, and explicit titles across the app. Always ON by default for family safety.",
-                        style: TextStyle(color: Colors.white54, fontSize: 12),
+                        "Strictly hides explicit 18+ content.",
+                        style: TextStyle(color: Colors.white54, fontSize: 11),
                       ),
                       onChanged: (val) async {
                         await ContentFilterService.instance.setFilterEnabled(val);
@@ -224,40 +280,70 @@ class _HomeScreenState extends State<HomeScreen> {
                         _loadTrending();
                       },
                     ),
-                    // Credits section
-                    Container(
-                      padding: const EdgeInsets.symmetric(vertical: 16),
+                    const SizedBox(height: 8),
+                    const Divider(color: Colors.white12),
+                    const SizedBox(height: 8),
+                    // TV Mode Settings
+                    Row(
+                      children: [
+                        const Icon(Icons.tv_rounded, color: Colors.white70, size: 18),
+                        const SizedBox(width: 8),
+                        const Text(
+                          "Display Mode",
+                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                        ),
+                        const Spacer(),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: TvModeService.instance.isTvHardware
+                                ? Colors.green.withValues(alpha: 0.2)
+                                : Colors.white10,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            TvModeService.instance.isTvHardware ? "Android TV" : "Mobile Phone",
+                            style: TextStyle(
+                              color: TvModeService.instance.isTvHardware ? Colors.greenAccent : Colors.white70,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    RadioGroup<TvModePreference>(
+                      groupValue: TvModeService.instance.preference,
+                      onChanged: (pref) async {
+                        if (pref != null) {
+                          await TvModeService.instance.setPreference(pref);
+                          setDialogState(() {});
+                        }
+                      },
                       child: Column(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Divider(color: Colors.white24),
-                          const SizedBox(height: 12),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF1A0000),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: const Color(0xFFE50914), width: 1),
-                            ),
-                            child: const Column(
-                              children: [
-                                Icon(Icons.code, color: Color(0xFFE50914), size: 28),
-                                SizedBox(height: 6),
-                                Text(
-                                  'Made by Hackedghost64',
-                                  style: TextStyle(
-                                    color: Color(0xFFE50914),
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                    letterSpacing: 1.2,
-                                  ),
-                                ),
-                                SizedBox(height: 4),
-                                Text(
-                                  'MBX Stream v1.0',
-                                  style: TextStyle(color: Colors.white54, fontSize: 12),
-                                ),
-                              ],
-                            ),
+                          RadioListTile<TvModePreference>(
+                            contentPadding: EdgeInsets.zero,
+                            value: TvModePreference.auto,
+                            activeColor: _accentRed,
+                            title: const Text("Auto Detect", style: TextStyle(color: Colors.white, fontSize: 13)),
+                            subtitle: const Text("Adapts layout automatically for touch vs remote", style: TextStyle(color: Colors.white54, fontSize: 11)),
+                          ),
+                          RadioListTile<TvModePreference>(
+                            contentPadding: EdgeInsets.zero,
+                            value: TvModePreference.mobile,
+                            activeColor: _accentRed,
+                            title: const Text("Force Mobile Mode", style: TextStyle(color: Colors.white, fontSize: 13)),
+                            subtitle: const Text("Always use touch layout and bottom navigation", style: TextStyle(color: Colors.white54, fontSize: 11)),
+                          ),
+                          RadioListTile<TvModePreference>(
+                            contentPadding: EdgeInsets.zero,
+                            value: TvModePreference.tv,
+                            activeColor: _accentRed,
+                            title: const Text("Force TV Mode", style: TextStyle(color: Colors.white, fontSize: 13)),
+                            subtitle: const Text("Always use left rail and D-pad remote focus", style: TextStyle(color: Colors.white54, fontSize: 11)),
                           ),
                         ],
                       ),
@@ -271,7 +357,11 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: const Text("Cancel", style: TextStyle(color: Colors.white54)),
                 ),
                 ElevatedButton(
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.amber, foregroundColor: Colors.black),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _accentRed,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
                   onPressed: () async {
                     await api.saveSettings(
                       gateway: gateway,
@@ -295,521 +385,878 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  int _getResponsiveColumns(BuildContext context) {
+    final isTv = TvModeService.instance.isTvMode(context);
+    final width = MediaQuery.of(context).size.width;
+    if (isTv) {
+      if (width < 900) return 4;
+      if (width < 1300) return 5;
+      if (width < 1700) return 6;
+      return 7;
+    }
+    // Mobile phones: strictly 2 columns for optimal readable size & thumb ergonomics
+    if (width < 600) return 2;
+    if (width < 840) return 3;
+    if (width < 1100) return 4;
+    return 5;
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0F0F0F),
+      backgroundColor: _bg,
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
-        backgroundColor: const Color(0xFF141414),
+        backgroundColor: Colors.transparent,
         elevation: 0,
+        surfaceTintColor: Colors.transparent,
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                Colors.black.withValues(alpha: 0.85),
+                Colors.black.withValues(alpha: 0.0),
+              ],
+            ),
+          ),
+        ),
         title: Row(
           children: [
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
-                color: const Color(0xFFE50914),
-                borderRadius: BorderRadius.circular(4),
+                gradient: const LinearGradient(
+                  colors: [_accentRed, Color(0xFFFF2A36)],
+                ),
+                borderRadius: BorderRadius.circular(6),
+                boxShadow: [
+                  BoxShadow(
+                    color: _accentRed.withValues(alpha: 0.4),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
               ),
               child: const Text(
                 "MBX",
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w900, fontSize: 13, letterSpacing: 0.8),
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 13,
+                  letterSpacing: 0.8,
+                ),
               ),
             ),
             const SizedBox(width: 8),
             const Text(
               "STREAM",
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, letterSpacing: 1.2),
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w900,
+                fontSize: 17,
+                letterSpacing: 1.5,
+              ),
             ),
           ],
         ),
         actions: [
+          // Filter indicator badge
           Padding(
-            padding: const EdgeInsets.only(right: 12),
-            child: TvFocusable(
-              borderRadius: 8,
-              scaleFactor: 1.06,
-              onTap: _showSettingsDialog,
-              child: Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.white10,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Icon(Icons.settings, color: Colors.white, size: 20),
+            padding: const EdgeInsets.only(right: 6),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: Colors.black45,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.white12),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    ContentFilterService.instance.isFilterEnabled
+                        ? Icons.shield_rounded
+                        : Icons.shield_outlined,
+                    color: ContentFilterService.instance.isFilterEnabled
+                        ? const Color(0xFF4CAF50)
+                        : Colors.white38,
+                    size: 14,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    ContentFilterService.instance.isFilterEnabled ? "Safe" : "All",
+                    style: TextStyle(
+                      color: ContentFilterService.instance.isFilterEnabled
+                          ? const Color(0xFF4CAF50)
+                          : Colors.white60,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
+          IconButton(
+            icon: const Icon(Icons.settings_outlined, color: Colors.white, size: 22),
+            onPressed: _showSettingsDialog,
+          ),
+          const SizedBox(width: 4),
         ],
       ),
-      body: _buildHomeFeed(),
+      body: RefreshIndicator(
+        onRefresh: _loadTrending,
+        color: _accentRed,
+        backgroundColor: _surface,
+        edgeOffset: 80,
+        child: _buildBody(),
+      ),
     );
   }
 
-  int _getResponsiveColumns(BuildContext context) {
-    final width = MediaQuery.of(context).size.width;
-    if (width < 600) return 3;
-    if (width < 840) return 4;
-    if (width < 1100) return 5;
-    if (width < 1400) return 6;
-    if (width < 1800) return 7;
-    return 8;
-  }
+  Widget _buildBody() {
+    if (_isLoadingTrending && _trending.isEmpty) {
+      return const Center(
+        child: CircularProgressIndicator(color: _accentRed),
+      );
+    }
 
+    if (_trending.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.movie_filter_outlined, color: Colors.white24, size: 54),
+              const SizedBox(height: 14),
+              const Text(
+                "Unable to load media catalog",
+                style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                "Check your internet connection or connection mode.",
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.white54, fontSize: 13),
+              ),
+              const SizedBox(height: 16),
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _accentRed,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                onPressed: _loadTrending,
+                icon: const Icon(Icons.refresh_rounded),
+                label: const Text("Retry"),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
 
+    final heroItem = _trending.first;
+    final isSpecificCategory = _selectedCategory != "All";
 
-  Widget _buildHomeFeed() {
     return CustomScrollView(
-      cacheExtent: 600,
+      cacheExtent: 800,
       slivers: [
+        // ── 1. Hero Featured Billboard ──────────────────────────────────────
+        if (!isSpecificCategory)
+          SliverToBoxAdapter(
+            child: _buildHeroBillboard(heroItem),
+          ),
+
+        // ── 2. Category Filter Pills ─────────────────────────────────────────
         SliverToBoxAdapter(
           child: Padding(
-            padding: const EdgeInsets.all(12),
+            padding: EdgeInsets.only(
+              top: isSpecificCategory ? 100 : 8,
+              bottom: 12,
+              left: 14,
+              right: 14,
+            ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Continue Watching carousel
-                if (_continueWatching.isNotEmpty) ...[
-                  _buildSectionHeader(
-                    title: "Continue Watching",
-                    onSeeAll: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => const ContinueWatchingScreen()),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  SizedBox(
-                    height: 150,
-                    child: ListView.builder(
-                      scrollDirection: Axis.horizontal,
-                      itemCount: _continueWatching.length,
-                      itemBuilder: (ctx, i) {
-                        final progress = _continueWatching[i];
-                        return _ContinueWatchingCard(
-                          progress: progress,
-                          autofocus: i == 0,
-                          onTap: () {
-                            if (progress.streamUrl != null) {
-                              final stream = StreamOption(
-                                url: progress.streamUrl!,
-                                kind: progress.streamUrl!.contains('.m3u8')
-                                    ? 'hls'
-                                    : progress.streamUrl!.contains('.mpd')
-                                        ? 'dash'
-                                        : 'mp4',
-                                resolution: 'Saved',
-                                cookie: progress.streamCookie,
-                                bypassedDecoy: true,
-                              );
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => NetflixPlayerScreen(
-                                    subjectId: progress.subjectId,
-                                    title: progress.title,
-                                    poster: progress.poster,
-                                    season: progress.season,
-                                    episode: progress.episode,
-                                    episodeTitle: progress.episodeTitle,
-                                    stream: stream,
-                                    availableStreams: [stream],
-                                    isSeries: progress.season > 0,
-                                    initialPosition: Duration(milliseconds: progress.positionMs),
-                                  ),
-                                ),
-                              );
-                            } else {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(builder: (_) => const ContinueWatchingScreen()),
-                              );
-                            }
-                          },
-                        );
-                      },
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                ],
-
-                // My List carousel
-                if (_myList.isNotEmpty) ...[
-                  _buildSectionHeader(
-                    title: "My List",
-                    onSeeAll: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => const WatchlistScreen()),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  SizedBox(
-                    height: 185,
-                    child: ListView.builder(
-                      scrollDirection: Axis.horizontal,
-                      itemCount: _myList.length,
-                      itemBuilder: (ctx, i) {
-                        final item = _myList[i];
-                        return _WatchlistCard(
-                          item: item,
-                          onTap: () => Navigator.push(
-                            context,
-                            MaterialPageRoute(builder: (_) => DetailScreen(item: item.toMediaItem())),
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                ],
-
-                // Categories Selector Bar
-                const Text(
-                  "Categories",
-                  style: TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 8),
                 SizedBox(
                   height: 38,
                   child: ListView.separated(
                     scrollDirection: Axis.horizontal,
                     itemCount: _categories.length,
-                    separatorBuilder: (context, index) => const SizedBox(width: 8),
+                    separatorBuilder: (_, _) => const SizedBox(width: 8),
                     itemBuilder: (ctx, i) {
                       final cat = _categories[i];
-                      return _CategoryChip(
-                        label: cat,
-                        isSelected: _selectedCategory == cat,
-                        autofocus: _continueWatching.isEmpty && i == 0,
-                        onTap: () => _selectCategory(cat),
-                      );
+                      final isSelected = _selectedCategory == cat;
+                      return _buildCategoryChip(cat, isSelected);
                     },
                   ),
                 ),
-                const SizedBox(height: 20),
-
-                // Feed Section Header
-                Row(
-                  children: [
-                    Icon(
-                      _selectedCategory == "All" ? Icons.local_fire_department : Icons.movie_filter,
-                      color: const Color(0xFFE50914),
-                      size: 20,
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      _selectedCategory == "All" ? "Trending & Popular" : _selectedCategory,
-                      style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
               ],
             ),
           ),
         ),
 
-        if (_isLoadingTrending)
-          const SliverToBoxAdapter(
-            child: Padding(
-              padding: EdgeInsets.symmetric(vertical: 48),
-              child: Center(child: CircularProgressIndicator(color: Color(0xFFE50914))),
-            ),
-          )
-        else if (_trending.isEmpty)
+        // ── 3. Continue Watching Row (if active) ─────────────────────────────
+        if (!isSpecificCategory && _continueWatching.isNotEmpty) ...[
           SliverToBoxAdapter(
             child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 32),
-              child: Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.movie_filter_outlined, color: Colors.white24, size: 48),
-                    const SizedBox(height: 12),
-                    const Text(
-                      "No trending titles found",
-                      style: TextStyle(color: Colors.white70, fontSize: 14),
-                    ),
-                    const SizedBox(height: 12),
-                    ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFE50914),
-                        foregroundColor: Colors.white,
-                      ),
-                      onPressed: _loadTrending,
-                      icon: const Icon(Icons.refresh),
-                      label: const Text("Retry"),
-                    ),
-                  ],
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              child: _buildSectionHeader(
+                title: "Continue Watching",
+                badge: "${_continueWatching.length}",
+                onSeeAll: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const MySpaceScreen(initialTab: 0)),
                 ),
               ),
             ),
-          )
-        else
-          SliverPadding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            sliver: SliverGrid(
-              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: _getResponsiveColumns(context),
-                childAspectRatio: 0.65,
-                crossAxisSpacing: 10,
-                mainAxisSpacing: 10,
-              ),
-              delegate: SliverChildBuilderDelegate(
-                (ctx, i) => _MediaCard(
-                item: _trending[i],
-                autofocus: i == 0 && _continueWatching.isEmpty,
-              ),
-                childCount: _trending.length,
+          ),
+          SliverToBoxAdapter(
+            child: SizedBox(
+              height: 154,
+              child: ListView.separated(
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                scrollDirection: Axis.horizontal,
+                itemCount: _continueWatching.length,
+                separatorBuilder: (_, _) => const SizedBox(width: 12),
+                itemBuilder: (ctx, i) => _ContinueWatchingCard(
+                  progress: _continueWatching[i],
+                  onTap: () => _resumeContinueWatching(_continueWatching[i]),
+                ),
               ),
             ),
           ),
+          const SliverToBoxAdapter(child: SizedBox(height: 16)),
+        ],
 
-        // Home footer Credits badge
+        // ── 4. My List Quick Carousel (if active) ───────────────────────────
+        if (!isSpecificCategory && _myList.isNotEmpty) ...[
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              child: _buildSectionHeader(
+                title: "My List",
+                badge: "${_myList.length}",
+                onSeeAll: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const MySpaceScreen(initialTab: 1)),
+                ),
+              ),
+            ),
+          ),
+          SliverToBoxAdapter(
+            child: SizedBox(
+              height: 200,
+              child: ListView.separated(
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                scrollDirection: Axis.horizontal,
+                itemCount: _myList.length,
+                separatorBuilder: (_, _) => const SizedBox(width: 10),
+                itemBuilder: (ctx, i) {
+                  final it = _myList[i].toMediaItem();
+                  return _PosterCard(
+                    item: it,
+                    width: 120,
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => DetailScreen(item: it)),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+          const SliverToBoxAdapter(child: SizedBox(height: 16)),
+        ],
+
+        // ── 5. Trending Horizontal Carousel (on All feed) ────────────────────
+        if (!isSpecificCategory && _trending.length > 5) ...[
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              child: _buildSectionHeader(
+                title: "🔥 Trending Now",
+                onSeeAll: () => _selectCategory("Movies"),
+              ),
+            ),
+          ),
+          SliverToBoxAdapter(
+            child: SizedBox(
+              height: 220,
+              child: ListView.separated(
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                scrollDirection: Axis.horizontal,
+                itemCount: _trending.take(10).length,
+                separatorBuilder: (_, _) => const SizedBox(width: 10),
+                itemBuilder: (ctx, i) {
+                  final item = _trending[i];
+                  return _PosterCard(
+                    item: item,
+                    width: 130,
+                    rank: i + 1,
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => DetailScreen(item: item)),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+          const SliverToBoxAdapter(child: SizedBox(height: 20)),
+        ],
+
+        // ── 6. Feed Section Header & Responsive 2-Column Grid ─────────────────
         SliverToBoxAdapter(
           child: Padding(
-            padding: const EdgeInsets.only(top: 24, bottom: 20),
-            child: Center(
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF1A0000),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: const Color(0xFFE50914)),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            child: Row(
+              children: [
+                Icon(
+                  isSpecificCategory ? Icons.filter_alt_rounded : Icons.explore_rounded,
+                  color: _accentRed,
+                  size: 20,
                 ),
-                child: const Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.code, color: Color(0xFFE50914), size: 20),
-                    SizedBox(height: 4),
-                    Text(
-                      'Made by Hackedghost64',
-                      style: TextStyle(
-                        color: Color(0xFFE50914),
-                        fontSize: 13,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 1.0,
-                      ),
-                    ),
-                  ],
+                const SizedBox(width: 8),
+                Text(
+                  isSpecificCategory ? _selectedCategory : "Explore Catalog",
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
-              ),
+                const Spacer(),
+                Text(
+                  "${_trending.length} titles",
+                  style: const TextStyle(color: Colors.white38, fontSize: 12),
+                ),
+              ],
             ),
           ),
         ),
-      ],
-    );
-  }
 
-  Widget _buildSectionHeader({required String title, required VoidCallback onSeeAll}) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(
-          title,
-          style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
-        ),
-        TextButton(
-          onPressed: onSeeAll,
-          child: const Text("See all", style: TextStyle(color: Color(0xFFE50914))),
-        ),
-      ],
-    );
-  }
-}
-
-// ─── TV Remote Focusable Wrapper ─────────────────────────────────────────────
-
-class _TvFocusableCard extends StatelessWidget {
-  final Widget child;
-  final VoidCallback onTap;
-  final double borderRadius;
-  final bool autofocus;
-
-  const _TvFocusableCard({
-    required this.child,
-    required this.onTap,
-    this.borderRadius = 8,
-    this.autofocus = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return TvFocusable(
-      onTap: onTap,
-      borderRadius: borderRadius,
-      autofocus: autofocus,
-      scaleFactor: 1.08,
-      child: child,
-    );
-  }
-}
-
-// ─── Category Chip with TV Focus ─────────────────────────────────────────────
-
-class _CategoryChip extends StatelessWidget {
-  final String label;
-  final bool isSelected;
-  final VoidCallback onTap;
-  final bool autofocus;
-
-  const _CategoryChip({
-    required this.label,
-    required this.isSelected,
-    required this.onTap,
-    this.autofocus = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return TvFocusable(
-      onTap: onTap,
-      borderRadius: 20,
-      scaleFactor: 1.1,
-      autofocus: autofocus,
-      focusedBackgroundColor: const Color(0xFFE50914),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFFE50914) : const Color(0xFF222222),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: isSelected ? const Color(0xFFE50914) : Colors.white24,
-            width: 1,
+        // Responsive 2-column poster grid
+        SliverPadding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          sliver: SliverGrid(
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: _getResponsiveColumns(context),
+              childAspectRatio: 0.65,
+              crossAxisSpacing: 12,
+              mainAxisSpacing: 12,
+            ),
+            delegate: SliverChildBuilderDelegate(
+              (ctx, i) => _PosterCard(
+                item: _trending[i],
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => DetailScreen(item: _trending[i])),
+                ),
+              ),
+              childCount: _trending.length,
+            ),
           ),
         ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: isSelected ? Colors.white : Colors.white70,
-            fontSize: 12,
-            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-          ),
-        ),
-      ),
-    );
-  }
-}
 
-// ─── Continue Watching card ────────────────────────────────────────────────────
-
-class _ContinueWatchingCard extends StatelessWidget {
-  final WatchProgress progress;
-  final VoidCallback onTap;
-  final bool autofocus;
-
-  const _ContinueWatchingCard({
-    required this.progress,
-    required this.onTap,
-    this.autofocus = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return _TvFocusableCard(
-      autofocus: autofocus,
-      onTap: onTap,
-      borderRadius: 8,
-      child: Container(
-        width: 100,
-        margin: const EdgeInsets.only(right: 6),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: Stack(
+        // Footer branding
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.only(top: 32, bottom: 40),
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  SizedBox(
-                    width: 94,
-                    height: 110,
-                    child: progress.poster != null
-                        ? Image.network(
-                            progress.poster!,
-                            fit: BoxFit.cover,
-                            cacheWidth: 200,
-                            errorBuilder: (context, error, stackTrace) => Container(
-                              color: const Color(0xFF1E1E1E),
-                              child: const Center(child: Icon(Icons.movie, color: Colors.white24, size: 30)),
-                            ),
-                          )
-                        : Container(
-                            color: const Color(0xFF1E1E1E),
-                            child: const Center(child: Icon(Icons.movie, color: Colors.white24, size: 30)),
-                          ),
-                  ),
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    child: LinearProgressIndicator(
-                      value: progress.progressPercentage.clamp(0.0, 1.0),
-                      backgroundColor: Colors.white24,
-                      valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFE50914)),
-                      minHeight: 3,
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: _surface,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: _cardBorder),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.movie_rounded, color: _accentRed, size: 16),
+                        SizedBox(width: 6),
+                        Text(
+                          "MBX Stream • v1.0 Mobile",
+                          style: TextStyle(color: Colors.white60, fontSize: 12, fontWeight: FontWeight.bold),
+                        ),
+                      ],
                     ),
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 4),
-            Text(
-              progress.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: Colors.white, fontSize: 11),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ── Hero Featured Billboard Widget ──────────────────────────────────────────
+  Widget _buildHeroBillboard(MediaItem item) {
+    final poster = item.poster;
+    final isSeries = item.type == 2;
+    final inWatchlist = StorageService.instance.isInWatchlist(item.id);
+
+    return Stack(
+      children: [
+        // Background poster with smooth gradient overlays
+        SizedBox(
+          height: 440,
+          width: double.infinity,
+          child: poster != null
+              ? Image.network(
+                  poster,
+                  fit: BoxFit.cover,
+                  cacheWidth: 800,
+                  errorBuilder: (_, _, _) => Container(color: const Color(0xFF161822)),
+                )
+              : Container(color: const Color(0xFF161822)),
+        ),
+        // Vignette gradient
+        Positioned.fill(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                stops: const [0.0, 0.35, 0.7, 1.0],
+                colors: [
+                  _bg.withValues(alpha: 0.4),
+                  Colors.transparent,
+                  _bg.withValues(alpha: 0.85),
+                  _bg,
+                ],
+              ),
             ),
-          ],
+          ),
+        ),
+        // Content overlay
+        Positioned(
+          left: 16,
+          right: 16,
+          bottom: 12,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Badge row
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: _accentRed,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      isSeries ? "TV SERIES" : "FEATURED MOVIE",
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 10,
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  if (item.rating != null) ...[
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: Colors.black54,
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(color: Colors.amber.withValues(alpha: 0.6)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.star_rounded, color: Colors.amber, size: 12),
+                          const SizedBox(width: 3),
+                          Text(
+                            item.rating!,
+                            style: const TextStyle(color: Colors.amber, fontSize: 11, fontWeight: FontWeight.bold),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
+                  if (item.year != null)
+                    Text(
+                      item.year!,
+                      style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w600),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              // Big Title
+              Text(
+                item.title,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 26,
+                  letterSpacing: -0.5,
+                  shadows: [
+                    Shadow(color: Colors.black, blurRadius: 10),
+                  ],
+                ),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 14),
+              // Action Buttons Row
+              Row(
+                children: [
+                  // Play button
+                  Expanded(
+                    flex: 3,
+                    child: ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _accentRed,
+                        foregroundColor: Colors.white,
+                        elevation: 6,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                      onPressed: () => _playMediaItem(item),
+                      icon: const Icon(Icons.play_arrow_rounded, size: 24),
+                      label: const Text(
+                        "Play Now",
+                        style: TextStyle(fontWeight: FontWeight.w900, fontSize: 15),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  // My List toggle button
+                  Expanded(
+                    flex: 2,
+                    child: OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        backgroundColor: Colors.white.withValues(alpha: 0.12),
+                        side: const BorderSide(color: Colors.white24),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                      onPressed: () async {
+                        HapticFeedback.lightImpact();
+                        await StorageService.instance.toggleWatchlist(item);
+                        if (mounted) setState(() {});
+                      },
+                      icon: Icon(
+                        inWatchlist ? Icons.check_rounded : Icons.add_rounded,
+                        size: 20,
+                        color: inWatchlist ? const Color(0xFF4CAF50) : Colors.white,
+                      ),
+                      label: Text(
+                        inWatchlist ? "Saved" : "My List",
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  // Details info button
+                  IconButton.filled(
+                    style: IconButton.styleFrom(
+                      backgroundColor: Colors.white.withValues(alpha: 0.12),
+                      foregroundColor: Colors.white,
+                    ),
+                    icon: const Icon(Icons.info_outline_rounded, size: 20),
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => DetailScreen(item: item)),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildCategoryChip(String cat, bool isSelected) {
+    return GestureDetector(
+      onTap: () => _selectCategory(cat),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? _accentRed : _surface,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: isSelected ? _accentRed : _cardBorder,
+          ),
+          boxShadow: isSelected
+              ? [
+                  BoxShadow(
+                    color: _accentRed.withValues(alpha: 0.35),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ]
+              : null,
+        ),
+        child: Center(
+          child: Text(
+            cat,
+            style: TextStyle(
+              color: isSelected ? Colors.white : Colors.white70,
+              fontSize: 13,
+              fontWeight: isSelected ? FontWeight.w900 : FontWeight.w500,
+            ),
+          ),
         ),
       ),
     );
   }
+
+  Widget _buildSectionHeader({
+    required String title,
+    String? badge,
+    required VoidCallback onSeeAll,
+  }) {
+    return Row(
+      children: [
+        Text(
+          title,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 17,
+            fontWeight: FontWeight.w900,
+            letterSpacing: -0.3,
+          ),
+        ),
+        if (badge != null) ...[
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: _surface,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: _cardBorder),
+            ),
+            child: Text(
+              badge,
+              style: const TextStyle(color: _accentRed, fontSize: 11, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+        const Spacer(),
+        GestureDetector(
+          onTap: onSeeAll,
+          child: const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+            child: Row(
+              children: [
+                Text(
+                  "See all",
+                  style: TextStyle(color: _accentRed, fontWeight: FontWeight.bold, fontSize: 13),
+                ),
+                Icon(Icons.chevron_right_rounded, color: _accentRed, size: 18),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _resumeContinueWatching(WatchProgress progress) async {
+    HapticFeedback.lightImpact();
+    // Safety check against decoy URLs
+    if (progress.streamUrl == null || MovieBoxApi.isDecoyUrl(progress.streamUrl)) {
+      try {
+        final streams = await MovieBoxApi.instance.getStreams(
+          progress.subjectId,
+          season: progress.season,
+          episode: progress.episode,
+        );
+        if (streams.isNotEmpty && mounted) {
+          final topStream = streams.first;
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => NetflixPlayerScreen(
+                subjectId: progress.subjectId,
+                title: progress.title,
+                poster: progress.poster,
+                season: progress.season,
+                episode: progress.episode,
+                episodeTitle: progress.episodeTitle,
+                stream: topStream,
+                availableStreams: streams,
+                isSeries: progress.season > 0,
+                initialPosition: Duration(milliseconds: progress.positionMs),
+              ),
+            ),
+          );
+          return;
+        }
+      } catch (_) {}
+    }
+
+    if (progress.streamUrl != null && !MovieBoxApi.isDecoyUrl(progress.streamUrl)) {
+      final stream = StreamOption(
+        url: progress.streamUrl!,
+        kind: progress.streamUrl!.contains('.m3u8')
+            ? 'hls'
+            : progress.streamUrl!.contains('.mpd')
+                ? 'dash'
+                : 'mp4',
+        resolution: 'Saved',
+        cookie: progress.streamCookie,
+        bypassedDecoy: true,
+      );
+      if (!mounted) return;
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => NetflixPlayerScreen(
+            subjectId: progress.subjectId,
+            title: progress.title,
+            poster: progress.poster,
+            season: progress.season,
+            episode: progress.episode,
+            episodeTitle: progress.episodeTitle,
+            stream: stream,
+            availableStreams: [stream],
+            isSeries: progress.season > 0,
+            initialPosition: Duration(milliseconds: progress.positionMs),
+          ),
+        ),
+      );
+    } else {
+      if (!mounted) return;
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => DetailScreen(
+            item: MediaItem(
+              id: progress.subjectId,
+              title: progress.title,
+              poster: progress.poster,
+              type: progress.season > 0 ? 2 : 1,
+            ),
+          ),
+        ),
+      );
+    }
+  }
 }
 
-// ─── My List card ─────────────────────────────────────────────────────────────
+// ─── Continue Watching Card ──────────────────────────────────────────────────
 
-class _WatchlistCard extends StatelessWidget {
-  final WatchlistItem item;
+class _ContinueWatchingCard extends StatelessWidget {
+  final WatchProgress progress;
   final VoidCallback onTap;
 
-  const _WatchlistCard({required this.item, required this.onTap});
+  const _ContinueWatchingCard({required this.progress, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    return _TvFocusableCard(
+    final fraction = progress.durationMs > 0
+        ? (progress.positionMs / progress.durationMs).clamp(0.0, 1.0)
+        : 0.0;
+    final minutesLeft = progress.durationMs > progress.positionMs
+        ? ((progress.durationMs - progress.positionMs) / 60000).ceil()
+        : 0;
+
+    return GestureDetector(
       onTap: onTap,
-      borderRadius: 8,
       child: Container(
-        width: 110,
-        margin: const EdgeInsets.only(right: 6),
+        width: 200,
+        decoration: BoxDecoration(
+          color: const Color(0xFF141622),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0x1FFFFFFF)),
+          boxShadow: const [
+            BoxShadow(
+              color: Colors.black45,
+              blurRadius: 8,
+              offset: Offset(0, 3),
+            ),
+          ],
+        ),
+        clipBehavior: Clip.antiAlias,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: SizedBox(
-                width: 104,
-                height: 145,
-                child: item.poster != null
-                    ? Image.network(
-                        item.poster!,
-                        fit: BoxFit.cover,
-                        cacheWidth: 220,
-                        errorBuilder: (context, error, stackTrace) => Container(
-                          color: const Color(0xFF1E1E1E),
-                          child: const Center(child: Icon(Icons.movie, color: Colors.white24, size: 36)),
-                        ),
-                      )
-                    : Container(
-                        color: const Color(0xFF1E1E1E),
-                        child: const Center(child: Icon(Icons.movie, color: Colors.white24, size: 36)),
-                      ),
-              ),
+            // Thumbnail with Play button & progress gauge
+            Stack(
+              alignment: Alignment.center,
+              children: [
+                SizedBox(
+                  height: 96,
+                  width: 200,
+                  child: progress.poster != null
+                      ? Image.network(
+                          progress.poster!,
+                          fit: BoxFit.cover,
+                          cacheWidth: 400,
+                          errorBuilder: (_, _, _) => Container(color: Colors.black38),
+                        )
+                      : Container(color: Colors.black38),
+                ),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: const BoxDecoration(
+                    color: Colors.black54,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.play_arrow_rounded, color: Colors.white, size: 24),
+                ),
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: LinearProgressIndicator(
+                    value: fraction,
+                    backgroundColor: Colors.white24,
+                    valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFE50914)),
+                    minHeight: 3.5,
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 4),
-            Text(
-              item.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: Colors.white, fontSize: 11),
+            // Title & info
+            Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    progress.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    progress.season > 0
+                        ? "S${progress.season} E${progress.episode}${progress.episodeTitle != null ? ' • ${progress.episodeTitle}' : ''}"
+                        : (minutesLeft > 0 ? "$minutesLeft min left" : "Watched"),
+                    style: const TextStyle(
+                      color: Colors.white54,
+                      fontSize: 11,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -818,87 +1265,138 @@ class _WatchlistCard extends StatelessWidget {
   }
 }
 
-// ─── Trending media card ───────────────────────────────────────────────────────
+// ─── Reusable Poster Card ────────────────────────────────────────────────────
 
-class _MediaCard extends StatelessWidget {
+class _PosterCard extends StatelessWidget {
   final MediaItem item;
-  final bool autofocus;
+  final VoidCallback onTap;
+  final double? width;
+  final int? rank;
 
-  const _MediaCard({
+  const _PosterCard({
     required this.item,
-    this.autofocus = false,
+    required this.onTap,
+    this.width,
+    this.rank,
   });
 
   @override
   Widget build(BuildContext context) {
-    return _TvFocusableCard(
-      autofocus: autofocus,
+    return GestureDetector(
       onTap: () {
-        Navigator.push(context, MaterialPageRoute(builder: (_) => DetailScreen(item: item)));
+        HapticFeedback.lightImpact();
+        onTap();
       },
-      borderRadius: 8,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(8),
-        child: Container(
-          color: const Color(0xFF1E1E1E),
-          child: Stack(
-            children: [
-              Positioned.fill(
-                child: item.poster != null
-                    ? Image.network(
-                        item.poster!,
-                        fit: BoxFit.cover,
-                        cacheWidth: 400,
-                        errorBuilder: (context, error, stackTrace) => const Center(
-                          child: Icon(Icons.movie, color: Colors.white24, size: 36),
-                        ),
-                      )
-                    : const Center(
-                        child: Icon(Icons.movie, color: Colors.white24, size: 36),
-                      ),
-              ),
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: Container(
-                  padding: const EdgeInsets.all(6),
-                  decoration: const BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [Colors.transparent, Colors.black87, Colors.black],
+      child: Container(
+        width: width,
+        decoration: BoxDecoration(
+          color: const Color(0xFF141622),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0x1FFFFFFF)),
+          boxShadow: const [
+            BoxShadow(
+              color: Colors.black45,
+              blurRadius: 8,
+              offset: Offset(0, 4),
+            ),
+          ],
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            // Poster Image
+            item.poster != null
+                ? Image.network(
+                    item.poster!,
+                    fit: BoxFit.cover,
+                    cacheWidth: 400,
+                    errorBuilder: (_, _, _) => Container(
+                      color: const Color(0xFF161822),
+                      child: const Center(child: Icon(Icons.movie, color: Colors.white24, size: 36)),
                     ),
+                  )
+                : Container(
+                    color: const Color(0xFF161822),
+                    child: const Center(child: Icon(Icons.movie, color: Colors.white24, size: 36)),
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        item.title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+            // Gradient overlay
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [Colors.transparent, Colors.black87, Colors.black],
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      item.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        height: 1.2,
                       ),
-                      if (item.rating != null || item.year != null)
-                        Row(
-                          children: [
-                            if (item.rating != null) ...[
-                              const Icon(Icons.star, color: Colors.amber, size: 10),
-                              const SizedBox(width: 2),
-                              Text(item.rating!, style: const TextStyle(color: Colors.amber, fontSize: 10, fontWeight: FontWeight.bold)),
-                              const SizedBox(width: 4),
-                            ],
-                            if (item.year != null)
-                              Text(item.year!, style: const TextStyle(color: Colors.white54, fontSize: 10)),
-                          ],
-                        ),
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        if (item.rating != null) ...[
+                          const Icon(Icons.star_rounded, color: Colors.amber, size: 12),
+                          const SizedBox(width: 2),
+                          Text(
+                            item.rating!,
+                            style: const TextStyle(color: Colors.amber, fontSize: 11, fontWeight: FontWeight.bold),
+                          ),
+                          const Spacer(),
+                        ],
+                        if (item.year != null)
+                          Text(
+                            item.year!,
+                            style: const TextStyle(color: Colors.white54, fontSize: 10, fontWeight: FontWeight.w600),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            // Optional Top Rank Badge
+            if (rank != null)
+              Positioned(
+                top: 6,
+                left: 6,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE50914),
+                    borderRadius: BorderRadius.circular(4),
+                    boxShadow: const [
+                      BoxShadow(color: Colors.black45, blurRadius: 4),
                     ],
+                  ),
+                  child: Text(
+                    "#$rank",
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w900,
+                    ),
                   ),
                 ),
               ),
-            ],
-          ),
+          ],
         ),
       ),
     );

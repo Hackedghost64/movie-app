@@ -15,8 +15,8 @@ class MovieBoxApi {
   static const String gatewaySecretOnline = "76iRl07s0xSN9jqmEWAt79EBJZulIQIsV64FZr2O";
   static const String defaultApiHost = "api6.aoneroom.com";
   static const String appPackage = "com.community.oneroom";
-  static const String appVersion = "4.0.02.0831.03";
-  static const int appVersionCode = 50020126;
+  static const String appVersion = "4.0.03.0922.03";
+  static const int appVersionCode = 50020131;
 
   String? _deviceId;
   String? _sessionToken;
@@ -545,16 +545,32 @@ class MovieBoxApi {
       });
       final List<StreamOption> streams = [];
       final sel = res["selected"];
-      if (sel != null) {
+      if (sel != null && sel["url"] != null && sel["url"].toString().isNotEmpty) {
+        final u = sel["url"].toString();
         streams.add(StreamOption(
-          url: sel["url"] ?? "",
-          kind: sel["kind"] ?? "hls",
+          url: u,
+          kind: guessMediaKind(u, sel["kind"]?.toString()),
           resolution: sel["max_resolution"] ?? "1080p",
           sizeMb: (sel["size_mb"] as num?)?.toDouble(),
           durationSeconds: sel["duration_seconds"],
           cookie: sel["cookie"],
           bypassedDecoy: sel["bypassed_decoy"] ?? false,
         ));
+      }
+      final alts = res["alternatives"] as List? ?? [];
+      for (var alt in alts) {
+        if (alt is Map && alt["url"] != null && alt["url"].toString().isNotEmpty && alt["url"] != sel?["url"]) {
+          final u = alt["url"].toString();
+          streams.add(StreamOption(
+            url: u,
+            kind: guessMediaKind(u, alt["kind"]?.toString()),
+            resolution: alt["max_resolution"] ?? (alt["resolutions"] != null ? "${alt['resolutions']}p" : "720p"),
+            sizeMb: (alt["size_mb"] as num?)?.toDouble(),
+            durationSeconds: alt["duration_seconds"],
+            cookie: alt["cookie"],
+            bypassedDecoy: alt["bypassed_decoy"] ?? false,
+          ));
+        }
       }
       return streams;
     } else {
@@ -620,31 +636,40 @@ class MovieBoxApi {
       for (var s in rawStreams) {
         final rawUrl = s["url"]?.toString() ?? "";
         final signCookie = s["signCookie"]?.toString();
-        final realTuple = _extractRealStreamFromCookie(signCookie);
+        final realTuple = extractRealStreamFromCookie(signCookie);
 
         String effectiveUrl = rawUrl;
         String effectiveKind = (s["format"] ?? "mp4").toString().toLowerCase();
         bool isDecoyBypassed = false;
+        final isDecoy = isDecoyUrl(rawUrl);
 
-        // Bypass decoy update video if detected or if real stream extracted from signed cookie
-        final isDecoy = rawUrl.contains("b164fbfb4347792950bdfbfb563d39d9") ||
-            rawUrl.contains("/other/2026/09/04/") ||
-            rawUrl.contains("/other/") ||
-            rawUrl.isEmpty;
-        if (realTuple != null && (isDecoy || rawUrl.contains("aoneroom.com/other"))) {
+        if (realTuple != null && (isDecoy || rawUrl.isEmpty || rawUrl.contains("aoneroom.com/other"))) {
           effectiveUrl = realTuple[0];
           effectiveKind = realTuple[1];
           isDecoyBypassed = true;
+        } else if (isDecoy) {
+          // Strict: drop unbypassed decoy update videos completely
+          continue;
+        } else {
+          final fmt = (s["format"] ?? "").toString().toUpperCase();
+          effectiveKind = fmt == "DASH"
+              ? "dash"
+              : (fmt == "HLS" ? "hls" : (realTuple != null ? realTuple[1] : fmt.toLowerCase()));
         }
 
         if (effectiveUrl.isEmpty || seenUrls.contains(effectiveUrl)) continue;
+        if (isDecoy && !isDecoyBypassed) continue;
+
         seenUrls.add(effectiveUrl);
 
         var resStr = s["resolutions"]?.toString() ?? s["resolution"]?.toString() ?? "720";
         if (resStr.contains(",")) {
-          resStr = resStr.split(",").first.trim();
+          final list = resStr.split(",").map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+          if (list.isNotEmpty) {
+            resStr = list.first;
+          }
         }
-        if (!resStr.endsWith("p")) {
+        if (!resStr.endsWith("p") && int.tryParse(resStr) != null) {
           resStr = "${resStr}p";
         }
 
@@ -661,6 +686,108 @@ class MovieBoxApi {
           bypassedDecoy: isDecoyBypassed,
         ));
       }
+
+      // Fallback 3: If no valid streams found from play-info, query the /resource endpoint
+      if (streams.isEmpty) {
+        try {
+          final resObj = await _requestDirectRaw("GET", "/wefeed-mobile-bff/subject-api/resource", params: {
+            "host": defaultApiHost,
+            "subjectId": subjectId,
+            "se": season.toString(),
+            "ep": episode.toString(),
+          });
+          final list = resObj["data"]?["list"] as List? ?? [];
+          for (var item in list) {
+            String link = item["resourceLink"]?.toString() ?? "";
+            if (!isValidMediaUrl(link)) {
+              final dl = item["downloadUrl"]?.toString() ?? "";
+              if (isValidMediaUrl(dl)) {
+                link = dl;
+              } else {
+                continue;
+              }
+            }
+            if (isValidMediaUrl(link) && !seenUrls.contains(link)) {
+              seenUrls.add(link);
+              final resNum = item["resolution"]?.toString() ?? "720";
+              final resStr = resNum.endsWith("p") ? resNum : "${resNum}p";
+              final sizeVal = item["size"];
+              final sizeMb = sizeVal != null ? (double.tryParse(sizeVal.toString()) ?? 0) / 1e6 : null;
+              streams.add(StreamOption(
+                url: link,
+                kind: link.contains(".m3u8") ? "hls" : (link.contains(".mpd") ? "dash" : "mp4"),
+                resolution: resStr,
+                sizeMb: sizeMb != null ? double.parse(sizeMb.toStringAsFixed(1)) : null,
+                durationSeconds: item["duration"] as int?,
+                bypassedDecoy: true,
+              ));
+            }
+          }
+        } catch (_) {}
+      }
+
+      // Fallback 4: Query /subject-api/get resourceDetectors for direct signed streams
+      if (streams.isEmpty) {
+        try {
+          final getObj = await _requestDirectRaw("GET", "/wefeed-mobile-bff/subject-api/get", params: {
+            "host": defaultApiHost,
+            "subjectId": subjectId,
+          });
+          final data = getObj["data"] as Map<String, dynamic>?;
+          final detectors = data?["resourceDetectors"] as List? ?? [];
+          for (var detector in detectors) {
+            if (detector is Map) {
+              final resList = detector["resolutionList"] as List? ?? [];
+              for (var resItem in resList) {
+                if (resItem is Map) {
+                  final itemLink = resItem["resourceLink"]?.toString() ?? resItem["downloadUrl"]?.toString() ?? "";
+                  if (isValidMediaUrl(itemLink) && !seenUrls.contains(itemLink)) {
+                    seenUrls.add(itemLink);
+                    final resVal = resItem["resolution"]?.toString() ?? "720";
+                    final resStr = resVal.endsWith("p") ? resVal : "${resVal}p";
+                    final sizeVal = resItem["size"];
+                    final sizeMb = sizeVal != null ? (double.tryParse(sizeVal.toString()) ?? 0) / 1e6 : null;
+                    streams.add(StreamOption(
+                      url: itemLink,
+                      kind: itemLink.contains(".m3u8") ? "hls" : (itemLink.contains(".mpd") ? "dash" : "mp4"),
+                      resolution: resStr,
+                      sizeMb: sizeMb != null ? double.parse(sizeMb.toStringAsFixed(1)) : null,
+                      durationSeconds: resItem["duration"] as int?,
+                      bypassedDecoy: true,
+                    ));
+                  }
+                }
+              }
+
+              // Fallback to detector-level downloadUrl or resourceLink if resolutionList was empty
+              final detLink = detector["downloadUrl"]?.toString() ?? detector["resourceLink"]?.toString() ?? "";
+              if (isValidMediaUrl(detLink) && !seenUrls.contains(detLink)) {
+                seenUrls.add(detLink);
+                final sizeVal = detector["firstSize"] ?? detector["totalSize"];
+                final sizeMb = sizeVal != null ? (double.tryParse(sizeVal.toString()) ?? 0) / 1e6 : null;
+                streams.add(StreamOption(
+                  url: detLink,
+                  kind: detLink.contains(".m3u8") ? "hls" : (detLink.contains(".mpd") ? "dash" : "mp4"),
+                  resolution: "720p",
+                  sizeMb: sizeMb != null ? double.parse(sizeMb.toStringAsFixed(1)) : null,
+                  bypassedDecoy: true,
+                ));
+              }
+            }
+          }
+        } catch (_) {}
+      }
+
+      // Final strict filter: remove any remaining decoy honeypot URLs or invalid non-media URLs
+      streams.removeWhere((st) => (!isValidMediaUrl(st.url) && !st.bypassedDecoy) || (isDecoyUrl(st.url) && !st.bypassedDecoy));
+
+      // Sort streams: highest resolution first (1080p > 720p > 480p)
+      streams.sort((a, b) {
+        final aNum = int.tryParse(a.resolution.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+        final bNum = int.tryParse(b.resolution.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+        return bNum.compareTo(aNum);
+      });
+
       return streams;
     }
   }
@@ -670,35 +797,136 @@ class MovieBoxApi {
     return parts.isNotEmpty ? parts.join("; ") : null;
   }
 
-  List<String>? _extractRealStreamFromCookie(String? cookie) {
+  static bool isDecoyUrl(String? url) {
+    if (url == null || url.isEmpty) return false;
+    final u = url.toLowerCase();
+    // Upstream honeypot / decoy update announcement video patterns
+    if (u.contains("b164fbfb4347792950bdfbfb563d39d9") ||
+        u.contains("80da52722ee7de7a4303290af6783424") ||
+        u.contains("macdn.aoneroom.com") ||
+        u.contains("aoneroom.com/other") ||
+        u.contains("/other/") ||
+        u.contains("/upgrade/") ||
+        u.contains("/notice/") ||
+        u.contains("dummy") ||
+        u.contains("decoy") ||
+        u.contains("update_app") ||
+        u.contains("app_update") ||
+        RegExp(r'/other/(\d{4}/\d{2}/\d{2}/|.*\.mp4)', caseSensitive: false).hasMatch(u)) {
+      return true;
+    }
+    // Any direct .mp4 video served from aoneroom.com domain is an update honeypot notice
+    if (u.contains("aoneroom.com") && (u.endsWith(".mp4") || u.contains(".mp4?"))) {
+      return true;
+    }
+    return false;
+  }
+
+  static bool isValidMediaUrl(String? url) {
+    if (url == null || url.isEmpty) return false;
+    if (isDecoyUrl(url)) return false;
+    final lower = url.toLowerCase();
+    if (lower.contains("ailok.pe") || lower.contains("/info/")) return false;
+    if (!lower.startsWith("http://") && !lower.startsWith("https://")) return false;
+    final hasMediaExt = lower.contains(".mp4") ||
+        lower.contains(".m3u8") ||
+        lower.contains(".mpd") ||
+        lower.contains(".m4s") ||
+        lower.contains(".mkv");
+    final hasCdnHost = lower.contains("aoneroom.com") ||
+        lower.contains("hakunaymatata.com") ||
+        lower.contains("akamaized.net") ||
+        lower.contains("aliyuncs.com") ||
+        lower.contains("cloudcdn.net") ||
+        lower.contains("cloudfront.net");
+    return hasMediaExt || hasCdnHost;
+  }
+
+  static String guessMediaKind(String url, [String? fallbackKind]) {
+    final lower = url.toLowerCase();
+    if (lower.contains(".m3u8")) return "hls";
+    if (lower.contains(".mpd")) return "dash";
+    if (lower.contains(".mp4") || lower.contains(".m4v") || lower.contains(".m4a")) return "mp4";
+    final f = fallbackKind?.toLowerCase();
+    if (f == "dash" || f == "hls" || f == "mp4") return f!;
+    return "mp4";
+  }
+
+  static String decodeB64(String b64, {bool isCloudFront = false}) {
+    var s = b64.trim();
+    if (isCloudFront) {
+      s = s.replaceAll("-", "+").replaceAll("~", "/").replaceAll("_", "=");
+    } else {
+      s = s.replaceAll("-", "+").replaceAll("~", "/").replaceAll("_", "/");
+    }
+    while (s.length % 4 != 0) {
+      s += "=";
+    }
+    return utf8.decode(base64.decode(s), allowMalformed: true);
+  }
+
+  static List<String>? extractRealStreamFromCookie(String? cookie) {
     if (cookie == null || cookie.isEmpty) return null;
     final parts = cookie.split(";");
     for (var part in parts) {
       final trimmed = part.trim();
+      // 1. CloudFront Signed Cookies
       if (trimmed.startsWith("CloudFront-Policy=")) {
-        var b64 = trimmed.substring("CloudFront-Policy=".length);
-        // AWS CloudFront signed cookie base64 character mapping:
-        // '-' -> '+'
-        // '~' -> '/'
-        // '_' -> '='
-        b64 = b64.replaceAll("-", "+").replaceAll("~", "/").replaceAll("_", "=");
-        while (b64.length % 4 != 0) {
-          b64 += "=";
-        }
+        final b64 = trimmed.substring("CloudFront-Policy=".length);
         try {
-          final decoded = utf8.decode(base64.decode(b64), allowMalformed: true);
+          final decoded = decodeB64(b64, isCloudFront: true);
           final resMatch = RegExp(r'"Resource"\s*:\s*"([^"]+)"').firstMatch(decoded);
           if (resMatch != null) {
             final rawResource = resMatch.group(1)!;
-            final baseResource = rawResource.endsWith("*") ? rawResource.substring(0, rawResource.length - 1) : rawResource;
-            if (baseResource.contains("/hls/")) {
-              return ["${baseResource}local.m3u8", "hls"];
-            } else if (baseResource.contains("/dash/")) {
-              return ["${baseResource}index_web.mpd", "dash"];
+            final baseResource = rawResource.endsWith("*")
+                ? rawResource.substring(0, rawResource.length - 1)
+                : rawResource;
+            if (baseResource.contains("/hls/") || baseResource.contains(".m3u8")) {
+              return [
+                baseResource.endsWith(".m3u8") ? baseResource : "${baseResource}local.m3u8",
+                "hls"
+              ];
+            } else if (baseResource.contains("/dash/") || baseResource.contains(".mpd")) {
+              return [
+                baseResource.endsWith(".mpd") ? baseResource : "${baseResource}index_web.mpd",
+                "dash"
+              ];
+            } else if (baseResource.contains(".mp4")) {
+              return [baseResource, "mp4"];
             }
-            return [baseResource, "hls"];
+            return [baseResource, guessMediaKind(baseResource)];
           }
         } catch (_) {}
+      }
+
+      // 2. Edge Cache Cookies (urlprefix=<base64 url prefix>)
+      if (trimmed.contains("Edge-Cache-Cookie") || trimmed.contains("urlprefix=")) {
+        final subparts = trimmed.contains(":") ? trimmed.split(":") : [trimmed];
+        for (var sub in subparts) {
+          final sTrim = sub.trim();
+          if (sTrim.contains("urlprefix=")) {
+            final b64 = sTrim.split("urlprefix=")[1].trim();
+            try {
+              final prefix = decodeB64(b64).trim();
+              if (prefix.startsWith("http://") || prefix.startsWith("https://")) {
+                if (prefix.contains("/hls/") || prefix.contains(".m3u8")) {
+                  final fixed = prefix.endsWith(".m3u8")
+                      ? prefix
+                      : (prefix.endsWith("/") ? "${prefix}local.m3u8" : "$prefix/local.m3u8");
+                  return [fixed, "hls"];
+                } else if (prefix.contains("/dash/") || prefix.contains(".mpd")) {
+                  final fixed = prefix.endsWith(".mpd")
+                      ? prefix
+                      : (prefix.endsWith("/") ? "${prefix}index_web.mpd" : "$prefix/index_web.mpd");
+                  return [fixed, "dash"];
+                } else if (prefix.contains(".mp4")) {
+                  return [prefix, "mp4"];
+                }
+                return [prefix, guessMediaKind(prefix)];
+              }
+            } catch (_) {}
+          }
+        }
       }
     }
     return null;

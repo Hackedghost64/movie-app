@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../widgets/tv_focusable.dart';
+import '../services/tv_mode_service.dart';
 import 'home_screen.dart';
 import 'search_screen.dart';
 import 'continue_watching_screen.dart';
 import 'watchlist_screen.dart';
 import 'downloads_screen.dart';
+import 'my_space_screen.dart';
 
 class MainNavScreen extends StatefulWidget {
   const MainNavScreen({super.key});
@@ -18,7 +20,7 @@ class _MainNavScreenState extends State<MainNavScreen> {
   int _currentIndex = 0;
   DateTime? _lastBackPressTime;
 
-  final List<Widget> _screens = const [
+  final List<Widget> _tvScreens = const [
     HomeScreen(),
     SearchScreen(),
     ContinueWatchingScreen(),
@@ -26,14 +28,43 @@ class _MainNavScreenState extends State<MainNavScreen> {
     DownloadsScreen(),
   ];
 
+  final List<Widget> _mobileScreens = const [
+    HomeScreen(),
+    SearchScreen(),
+    MySpaceScreen(),
+    DownloadsScreen(),
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    TvModeService.instance.addListener(_onTvModeChanged);
+  }
+
+  @override
+  void dispose() {
+    TvModeService.instance.removeListener(_onTvModeChanged);
+    super.dispose();
+  }
+
+  void _onTvModeChanged() {
+    if (mounted) setState(() {});
+  }
+
   void _onNavTapped(int index) {
     if (_currentIndex != index) {
+      HapticFeedback.selectionClick();
       setState(() => _currentIndex = index);
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final isTv = TvModeService.instance.isTvMode(context);
+    final activeScreens = isTv ? _tvScreens : _mobileScreens;
+    final maxIndex = activeScreens.length - 1;
+    final safeIndex = _currentIndex.clamp(0, maxIndex);
+
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
@@ -41,6 +72,7 @@ class _MainNavScreenState extends State<MainNavScreen> {
 
         // If not on Home tab, return to Home first
         if (_currentIndex != 0) {
+          HapticFeedback.lightImpact();
           setState(() => _currentIndex = 0);
           return;
         }
@@ -64,7 +96,7 @@ class _MainNavScreenState extends State<MainNavScreen> {
                 borderRadius: BorderRadius.circular(8),
                 side: const BorderSide(color: Color(0xFFE50914), width: 1),
               ),
-              margin: const EdgeInsets.only(bottom: 24, left: 100, right: 32),
+              margin: EdgeInsets.only(bottom: 24, left: isTv ? 100 : 24, right: 24),
             ),
           );
           return;
@@ -74,22 +106,249 @@ class _MainNavScreenState extends State<MainNavScreen> {
         SystemNavigator.pop();
       },
       child: Scaffold(
-        backgroundColor: const Color(0xFF0F0F0F),
-        body: Row(
-          children: [
-            // ── Left Navigation Rail ─────────────────────────────────────────
-            _buildLeftNavRail(),
+        backgroundColor: const Color(0xFF090A0E),
+        body: isTv
+            ? Row(
+                children: [
+                  // ── Left Navigation Rail ─────────────────────────────────────────
+                  _buildLeftNavRail(),
 
-            // ── Main Content Area ────────────────────────────────────────────
-            Expanded(
-              child: IndexedStack(
-                index: _currentIndex,
-                children: _screens,
+                  // ── Main Content Area with 10-foot Safe Margin ───────────────────
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                      child: IndexedStack(
+                        index: safeIndex,
+                        children: activeScreens,
+                      ),
+                    ),
+                  ),
+                ],
+              )
+            : IndexedStack(
+                index: safeIndex,
+                children: activeScreens,
               ),
-            ),
-          ],
+        bottomNavigationBar: isTv ? null : _buildBottomBar(safeIndex),
+      ),
+    );
+  }
+
+  Widget _buildBottomBar(int selectedIndex) {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF10121A).withValues(alpha: 0.96),
+        border: const Border(
+          top: BorderSide(color: Color(0x1FFFFFFF), width: 0.8),
+        ),
+        boxShadow: const [
+          BoxShadow(
+            color: Colors.black54,
+            blurRadius: 16,
+            offset: Offset(0, -4),
+          ),
+        ],
+      ),
+      child: SafeArea(
+        top: false,
+        child: SizedBox(
+          height: 64,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _buildBottomNavItem(
+                index: 0,
+                selectedIndex: selectedIndex,
+                selectedIcon: Icons.home_rounded,
+                unselectedIcon: Icons.home_outlined,
+                label: 'Home',
+              ),
+              _buildBottomNavItem(
+                index: 1,
+                selectedIndex: selectedIndex,
+                selectedIcon: Icons.search_rounded,
+                unselectedIcon: Icons.search_outlined,
+                label: 'Search',
+              ),
+              _buildBottomNavItem(
+                index: 2,
+                selectedIndex: selectedIndex,
+                selectedIcon: Icons.video_library_rounded,
+                unselectedIcon: Icons.video_library_outlined,
+                label: 'Library',
+              ),
+              _buildBottomNavItem(
+                index: 3,
+                selectedIndex: selectedIndex,
+                selectedIcon: Icons.download_rounded,
+                unselectedIcon: Icons.download_outlined,
+                label: 'Downloads',
+              ),
+            ],
+          ),
         ),
       ),
+    );
+  }
+
+  Widget _buildBottomNavItem({
+    required int index,
+    required int selectedIndex,
+    required IconData selectedIcon,
+    required IconData unselectedIcon,
+    required String label,
+  }) {
+    final isSelected = selectedIndex == index;
+    return Expanded(
+      child: InkWell(
+        onTap: () => _onNavTapped(index),
+        splashColor: const Color(0x33E50914),
+        highlightColor: Colors.transparent,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
+                padding: EdgeInsets.symmetric(
+                  horizontal: isSelected ? 16 : 0,
+                  vertical: 3,
+                ),
+                decoration: BoxDecoration(
+                  color: isSelected ? const Color(0x2EE50914) : Colors.transparent,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Icon(
+                  isSelected ? selectedIcon : unselectedIcon,
+                  color: isSelected ? const Color(0xFFE50914) : Colors.white60,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                label,
+                style: TextStyle(
+                  color: isSelected ? Colors.white : Colors.white60,
+                  fontSize: 11,
+                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+                  letterSpacing: 0.2,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showTvModeDialog() {
+    final tvService = TvModeService.instance;
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              backgroundColor: const Color(0xFF1E1E1E),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: const Row(
+                children: [
+                  Icon(Icons.tv_rounded, color: Color(0xFFE50914)),
+                  SizedBox(width: 10),
+                  Text("TV & Display Mode", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                ],
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: tvService.isTvHardware ? Colors.green.withValues(alpha: 0.15) : Colors.white10,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: tvService.isTvHardware ? Colors.green : Colors.white24),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(tvService.isTvHardware ? Icons.check_circle : Icons.devices,
+                               color: tvService.isTvHardware ? Colors.greenAccent : Colors.white70, size: 16),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              tvService.isTvHardware ? "Android TV Device Detected" : "Standard Screen / Phone",
+                              style: TextStyle(
+                                color: tvService.isTvHardware ? Colors.greenAccent : Colors.white70,
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    const Text("UI Layout Mode", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+                    const SizedBox(height: 6),
+                    RadioGroup<TvModePreference>(
+                      groupValue: tvService.preference,
+                      onChanged: (pref) async {
+                        if (pref != null) {
+                          await tvService.setPreference(pref);
+                          setDialogState(() {});
+                        }
+                      },
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          RadioListTile<TvModePreference>(
+                            value: TvModePreference.auto,
+                            activeColor: const Color(0xFFE50914),
+                            title: const Text("Auto Detect", style: TextStyle(color: Colors.white, fontSize: 13)),
+                            subtitle: const Text("Switches automatically based on hardware/screen", style: TextStyle(color: Colors.white54, fontSize: 11)),
+                          ),
+                          RadioListTile<TvModePreference>(
+                            value: TvModePreference.tv,
+                            activeColor: const Color(0xFFE50914),
+                            title: const Text("Force TV Mode (10-Foot UI)", style: TextStyle(color: Colors.white, fontSize: 13)),
+                            subtitle: const Text("Enforces navigation rail and remote D-pad focus", style: TextStyle(color: Colors.white54, fontSize: 11)),
+                          ),
+                          RadioListTile<TvModePreference>(
+                            value: TvModePreference.mobile,
+                            activeColor: const Color(0xFFE50914),
+                            title: const Text("Force Mobile Mode", style: TextStyle(color: Colors.white, fontSize: 13)),
+                            subtitle: const Text("Enforces bottom navigation bar", style: TextStyle(color: Colors.white54, fontSize: 11)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TvFocusable(
+                  onTap: () => Navigator.pop(ctx),
+                  borderRadius: 8,
+                  autofocus: true,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE50914),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Text("Done", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 
@@ -106,22 +365,43 @@ class _MainNavScreenState extends State<MainNavScreen> {
         child: Column(
           children: [
             const SizedBox(height: 12),
-            // Logo Badge
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: const Color(0xFFE50914),
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: const Text(
-                'MBX',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w900,
-                  fontSize: 12,
-                  letterSpacing: 0.8,
+            // Logo & TV Badge
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE50914),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: const Text(
+                    'MBX',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 11,
+                      letterSpacing: 0.8,
+                    ),
+                  ),
                 ),
-              ),
+                const SizedBox(width: 4),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: Colors.white12,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: const Text(
+                    'TV',
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 9,
+                    ),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 20),
 
@@ -168,6 +448,21 @@ class _MainNavScreenState extends State<MainNavScreen> {
                 ),
               ),
             ),
+
+            // Bottom TV Settings Quick Action Button
+            TvFocusable(
+              onTap: _showTvModeDialog,
+              borderRadius: 8,
+              child: Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.06),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.tv_rounded, color: Colors.white70, size: 20),
+              ),
+            ),
+            const SizedBox(height: 12),
           ],
         ),
       ),

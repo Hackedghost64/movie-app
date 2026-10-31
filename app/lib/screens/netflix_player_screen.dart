@@ -3,7 +3,6 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
@@ -11,6 +10,7 @@ import '../models/media_models.dart';
 import '../models/storage_models.dart';
 import '../services/storage_service.dart';
 import '../services/moviebox_api.dart';
+import '../services/local_stream_relay.dart';
 import '../widgets/tv_focusable.dart';
 
 /// Netflix-style video player with custom overlay controls.
@@ -53,6 +53,8 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
 
   late StreamOption _currentStream;
   late List<StreamOption> _availableStreams;
+  final Set<String> _failedStreamUrls = {};
+  final Set<String> _relayRetryUrls = {};
 
   // ── Playback Target (Mutable for in-place episode switching) ───────────────
   late int _currentSeason;
@@ -246,6 +248,14 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
   // ─────────────────────────────────────────────────────────────────────────
 
   Future<void> _initPlayer({Duration? seekTo}) async {
+    // Proactively avoid decoy URLs if genuine stream alternatives are available
+    if (MovieBoxApi.isDecoyUrl(_currentStream.url)) {
+      final safeStreams = _availableStreams.where((s) => !MovieBoxApi.isDecoyUrl(s.url)).toList();
+      if (safeStreams.isNotEmpty) {
+        _currentStream = safeStreams.first;
+      }
+    }
+
     setState(() {
       _isInitializing = true;
       _hasError = false;
@@ -263,11 +273,40 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
       if (_currentStream.cookie != null && _currentStream.cookie!.isNotEmpty) {
         headers['Cookie'] = _currentStream.cookie!;
       }
+      headers['User-Agent'] = 'MovieBox/${MovieBoxApi.appVersion} (Android 14; Pixel 8 Pro)';
 
       final VideoPlayerController ctrl;
       if (_currentStream.url.startsWith('http://') || _currentStream.url.startsWith('https://')) {
+        await LocalStreamRelay.instance.ensureStarted();
+        final shouldUseRelay = (_currentStream.cookie != null && _currentStream.cookie!.isNotEmpty) ||
+            _relayRetryUrls.contains(_currentStream.url);
+
+        final playbackUrl = (shouldUseRelay && LocalStreamRelay.instance.isRunning)
+            ? LocalStreamRelay.instance.getRelayUrl(
+                url: _currentStream.url,
+                cookie: _currentStream.cookie,
+                kind: _currentStream.kind,
+                title: widget.title,
+              )
+            : _currentStream.url;
+
+        // Accurate format hint calculation: NEVER force HLS or DASH on an MP4 container!
+        VideoFormat? formatHint;
+        final lowerUrl = _currentStream.url.toLowerCase();
+        final k = _currentStream.kind.toLowerCase();
+        if (lowerUrl.contains('.mp4') || lowerUrl.contains('.m4v')) {
+          formatHint = null; // Let ExoPlayer sniff MP4 naturally
+        } else if (lowerUrl.contains('.m3u8') || (k == 'hls' && !lowerUrl.contains('.mp4') && !lowerUrl.contains('.mpd'))) {
+          formatHint = VideoFormat.hls;
+        } else if (lowerUrl.contains('.mpd') || (k == 'dash' && !lowerUrl.contains('.mp4') && !lowerUrl.contains('.m3u8'))) {
+          formatHint = VideoFormat.dash;
+        } else {
+          formatHint = null;
+        }
+
         ctrl = VideoPlayerController.networkUrl(
-          Uri.parse(_currentStream.url),
+          Uri.parse(playbackUrl),
+          formatHint: formatHint,
           httpHeaders: headers,
         );
       } else {
@@ -292,6 +331,35 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
       }
       await ctrl.play();
     } catch (e) {
+      debugPrint("Playback error for ${_currentStream.url}: $e");
+
+      // Fallback: If direct playback failed on Android (e.g. SSL/TLS drop, ISP block, intermediate cert),
+      // retry this exact stream through LocalStreamRelay before giving up
+      if (!_relayRetryUrls.contains(_currentStream.url) &&
+          LocalStreamRelay.instance.isRunning &&
+          (_currentStream.url.startsWith('http://') || _currentStream.url.startsWith('https://')) &&
+          !_currentStream.url.contains('127.0.0.1')) {
+        _relayRetryUrls.add(_currentStream.url);
+        debugPrint("Retrying stream via LocalStreamRelay: ${_currentStream.url}");
+        _initPlayer(seekTo: seekTo);
+        return;
+      }
+
+      _failedStreamUrls.add(_currentStream.url);
+      // Automatic Stream Failover to next available genuine unvisited stream
+      final altStreams = _availableStreams
+          .where((s) =>
+              !_failedStreamUrls.contains(s.url) &&
+              s.url != _currentStream.url &&
+              !MovieBoxApi.isDecoyUrl(s.url) &&
+              MovieBoxApi.isValidMediaUrl(s.url))
+          .toList();
+      if (altStreams.isNotEmpty) {
+        _currentStream = altStreams.first;
+        _initPlayer(seekTo: seekTo);
+        return;
+      }
+
       if (mounted) {
         setState(() {
           _hasError = true;
@@ -367,7 +435,7 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
         positionMs: pos,
         durationMs: dur,
         lastWatchedMs: DateTime.now().millisecondsSinceEpoch,
-        streamUrl: _currentStream.url,
+        streamUrl: MovieBoxApi.isDecoyUrl(_currentStream.url) ? null : _currentStream.url,
         streamCookie: _currentStream.cookie,
       ),
     );
@@ -715,6 +783,8 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
         _currentEpisodeTitle = epMatch?.title ?? 'Episode $episode';
       });
 
+      _failedStreamUrls.clear();
+      _relayRetryUrls.clear();
       await _initPlayer(seekTo: Duration.zero);
       _showControlsOverlay();
     } catch (e) {
@@ -791,9 +861,15 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
                           overflow: TextOverflow.ellipsis,
                         ),
                         const Spacer(),
-                        IconButton(
-                          icon: const Icon(Icons.close, color: Colors.white70),
-                          onPressed: () => Navigator.pop(ctx),
+                        TvFocusable(
+                          borderRadius: 20,
+                          scaleFactor: 1.1,
+                          borderWidth: 2,
+                          onTap: () => Navigator.pop(ctx),
+                          child: const Padding(
+                            padding: EdgeInsets.all(6),
+                            child: Icon(Icons.close, color: Colors.white70, size: 20),
+                          ),
                         ),
                       ],
                     ),
@@ -964,23 +1040,6 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // External player
-  // ─────────────────────────────────────────────────────────────────────────
-
-  Future<void> _openExternal() async {
-    final uri = Uri.parse(_currentStream.url);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } else {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not launch external player')),
-        );
-      }
-    }
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────
   // Speed dialog
   // ─────────────────────────────────────────────────────────────────────────
 
@@ -1129,6 +1188,8 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
     ).then((selected) {
       if (selected != null && selected.url != _currentStream.url) {
         final savedPos = _controller?.value.position;
+        _failedStreamUrls.clear();
+      _relayRetryUrls.clear();
         setState(() => _currentStream = selected);
         _initPlayer(seekTo: savedPos);
       }
@@ -1668,9 +1729,13 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
               backgroundColor: _accentRed,
               foregroundColor: Colors.white,
             ),
-            onPressed: _openExternal,
-            icon: const Icon(Icons.open_in_new),
-            label: const Text('Open in External Player'),
+            onPressed: () {
+              _failedStreamUrls.clear();
+      _relayRetryUrls.clear();
+              _initPlayer(seekTo: _position);
+            },
+            icon: const Icon(Icons.refresh),
+            label: const Text('Retry Playback'),
           ),
           const SizedBox(height: 12),
           TextButton(
@@ -1789,17 +1854,6 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
               ],
             ),
           ),
-          // External player
-          TvFocusable(
-            borderRadius: 20,
-            scaleFactor: 1.1,
-            onTap: _openExternal,
-            child: const Padding(
-              padding: EdgeInsets.all(8),
-              child: Icon(Icons.open_in_new, color: Colors.white),
-            ),
-          ),
-          const SizedBox(width: 8),
           // Screen lock
           TvFocusable(
             borderRadius: 20,
@@ -1857,6 +1911,7 @@ class _NetflixPlayerScreenState extends State<NetflixPlayerScreen> {
                     trackHeight: 3,
                   ),
                   child: Slider(
+                    focusNode: FocusNode(canRequestFocus: false),
                     value: (_dragValue ?? fraction).clamp(0.0, 1.0),
                     onChangeStart: (_) {
                       _onUserInteraction();

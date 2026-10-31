@@ -97,7 +97,8 @@ class _TvFocusableState extends State<TvFocusable> {
           key == LogicalKeyboardKey.enter ||
           key == LogicalKeyboardKey.numpadEnter ||
           key == LogicalKeyboardKey.space ||
-          key == LogicalKeyboardKey.gameButtonA) {
+          key == LogicalKeyboardKey.gameButtonA ||
+          key == LogicalKeyboardKey.gameButtonSelect) {
         widget.onTap();
         return KeyEventResult.handled;
       }

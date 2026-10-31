@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:video_player/video_player.dart';
 import 'package:chewie/chewie.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../models/media_models.dart';
+import '../services/local_stream_relay.dart';
+import '../services/moviebox_api.dart';
 
 class PlayerScreen extends StatefulWidget {
   final String title;
@@ -48,10 +49,35 @@ class _PlayerScreenState extends State<PlayerScreen> {
       if (_currentStream.cookie != null && _currentStream.cookie!.isNotEmpty) {
         headers['Cookie'] = _currentStream.cookie!;
       }
-      headers['User-Agent'] = 'MovieBox/4.0.02.0831.03 (Android 14; Pixel 8 Pro)';
+      headers['User-Agent'] = 'MovieBox/${MovieBoxApi.appVersion} (Android 14; Pixel 8 Pro)';
+
+      await LocalStreamRelay.instance.ensureStarted();
+      final playbackUrl = (_currentStream.cookie != null && _currentStream.cookie!.isNotEmpty && LocalStreamRelay.instance.isRunning)
+          ? LocalStreamRelay.instance.getRelayUrl(
+              url: _currentStream.url,
+              cookie: _currentStream.cookie,
+              kind: _currentStream.kind,
+              title: widget.title,
+            )
+          : _currentStream.url;
+
+      // Accurate format hint calculation: NEVER force HLS or DASH on an MP4 container!
+      VideoFormat? formatHint;
+      final lowerUrl = _currentStream.url.toLowerCase();
+      final k = _currentStream.kind.toLowerCase();
+      if (lowerUrl.contains('.mp4') || lowerUrl.contains('.m4v')) {
+        formatHint = null; // Let ExoPlayer sniff MP4 naturally
+      } else if (lowerUrl.contains('.m3u8') || (k == 'hls' && !lowerUrl.contains('.mp4') && !lowerUrl.contains('.mpd'))) {
+        formatHint = VideoFormat.hls;
+      } else if (lowerUrl.contains('.mpd') || (k == 'dash' && !lowerUrl.contains('.mp4') && !lowerUrl.contains('.m3u8'))) {
+        formatHint = VideoFormat.dash;
+      } else {
+        formatHint = null;
+      }
 
       _videoPlayerController = VideoPlayerController.networkUrl(
-        Uri.parse(_currentStream.url),
+        Uri.parse(playbackUrl),
+        formatHint: formatHint,
         httpHeaders: headers,
       );
 
@@ -80,9 +106,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 ),
                 const SizedBox(height: 16),
                 ElevatedButton.icon(
-                  onPressed: _openExternalPlayer,
-                  icon: const Icon(Icons.open_in_new),
-                  label: const Text("Open in External Player (VLC/MPV)"),
+                  onPressed: () => _initPlayer(),
+                  icon: const Icon(Icons.refresh),
+                  label: const Text("Retry Playback"),
                 ),
               ],
             ),
@@ -98,19 +124,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
         _isLoading = false;
         _errorMessage = e.toString();
       });
-    }
-  }
-
-  Future<void> _openExternalPlayer() async {
-    final uri = Uri.parse(_currentStream.url);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } else {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Could not launch external player")),
-        );
-      }
     }
   }
 
@@ -164,11 +177,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 }).toList();
               },
             ),
-          IconButton(
-            icon: const Icon(Icons.open_in_new),
-            tooltip: "Open External Player",
-            onPressed: _openExternalPlayer,
-          ),
         ],
       ),
       body: Center(
@@ -190,7 +198,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                         const Icon(Icons.warning_amber_rounded, color: Colors.amber, size: 56),
                         const SizedBox(height: 16),
                         Text(
-                          "Failed to load built-in player:\n$_errorMessage",
+                          "Failed to load player:\n$_errorMessage",
                           textAlign: TextAlign.center,
                           style: const TextStyle(color: Colors.white70),
                         ),
@@ -201,9 +209,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
                             foregroundColor: Colors.black,
                             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                           ),
-                          onPressed: _openExternalPlayer,
-                          icon: const Icon(Icons.open_in_new),
-                          label: const Text("Play in VLC / MX Player / MPV", style: TextStyle(fontWeight: FontWeight.bold)),
+                          onPressed: () => _initPlayer(),
+                          icon: const Icon(Icons.refresh),
+                          label: const Text("Retry Playback", style: TextStyle(fontWeight: FontWeight.bold)),
                         ),
                       ],
                     ),

@@ -15,6 +15,8 @@ class SearchScreen extends StatefulWidget {
 
 class _SearchScreenState extends State<SearchScreen> {
   final TextEditingController _controller = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
+  bool _isSearchFocused = false;
   bool _isSearching = false;
   List<MediaItem> _results = [];
   String _lastQuery = '';
@@ -36,6 +38,9 @@ class _SearchScreenState extends State<SearchScreen> {
   @override
   void initState() {
     super.initState();
+    _searchFocusNode.addListener(() {
+      if (mounted) setState(() => _isSearchFocused = _searchFocusNode.hasFocus);
+    });
     _loadRecentSearches();
   }
 
@@ -71,6 +76,7 @@ class _SearchScreenState extends State<SearchScreen> {
 
   @override
   void dispose() {
+    _searchFocusNode.dispose();
     _controller.dispose();
     super.dispose();
   }
@@ -136,7 +142,7 @@ class _SearchScreenState extends State<SearchScreen> {
     final isNsfw = ContentFilterService.instance.isQueryNsfw(_lastQuery);
 
     return Scaffold(
-      backgroundColor: const Color(0xFF0F0F0F),
+      backgroundColor: const Color(0xFF090A0E),
       body: SafeArea(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -149,12 +155,26 @@ class _SearchScreenState extends State<SearchScreen> {
                   Expanded(
                     child: Container(
                       decoration: BoxDecoration(
-                        color: const Color(0xFF1E1E1E),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.white12),
+                        color: const Color(0xFF141622),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: _isSearchFocused ? const Color(0xFFE50914) : const Color(0x1FFFFFFF),
+                          width: _isSearchFocused ? 2.0 : 1,
+                        ),
+                        boxShadow: _isSearchFocused
+                            ? [
+                                const BoxShadow(color: Color(0xCC000000), blurRadius: 10),
+                                BoxShadow(
+                                  color: const Color(0xFFE50914).withValues(alpha: 0.35),
+                                  blurRadius: 12,
+                                  spreadRadius: 1,
+                                ),
+                              ]
+                            : null,
                       ),
                       child: TextField(
                         controller: _controller,
+                        focusNode: _searchFocusNode,
                         style: const TextStyle(color: Colors.white, fontSize: 15),
                         textInputAction: TextInputAction.search,
                         onSubmitted: _search,
@@ -164,7 +184,7 @@ class _SearchScreenState extends State<SearchScreen> {
                           prefixIcon: const Icon(Icons.search, color: Color(0xFFE50914)),
                           suffixIcon: _controller.text.isNotEmpty
                               ? IconButton(
-                                  icon: const Icon(Icons.clear, color: Colors.white38),
+                                  icon: const Icon(Icons.clear, color: Colors.white70),
                                   onPressed: () {
                                     _controller.clear();
                                     _search('');
@@ -200,8 +220,8 @@ class _SearchScreenState extends State<SearchScreen> {
 
             // Quick Genre Filter Chips
             Container(
-              height: 36,
-              margin: const EdgeInsets.only(bottom: 8),
+              height: 44,
+              margin: const EdgeInsets.only(bottom: 10),
               child: ListView.separated(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 scrollDirection: Axis.horizontal,
@@ -211,26 +231,29 @@ class _SearchScreenState extends State<SearchScreen> {
                   final genre = _genreQuickFilters[i];
                   final isSelected = _lastQuery.toLowerCase() == genre.toLowerCase();
                   return TvFocusable(
-                    borderRadius: 18,
+                    borderRadius: 20,
                     scaleFactor: 1.05,
+                    borderWidth: 2.0,
                     onTap: () {
                       _controller.text = genre;
                       _search(genre);
                     },
                     child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      alignment: Alignment.center,
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                       decoration: BoxDecoration(
-                        color: isSelected ? const Color(0xFFE50914) : const Color(0xFF222222),
-                        borderRadius: BorderRadius.circular(18),
+                        color: isSelected ? const Color(0xFFE50914) : const Color(0xFF141622),
+                        borderRadius: BorderRadius.circular(10),
                         border: Border.all(
-                          color: isSelected ? const Color(0xFFE50914) : Colors.white12,
+                          color: isSelected ? const Color(0xFFE50914) : const Color(0x1FFFFFFF),
+                          width: 1,
                         ),
                       ),
                       child: Text(
                         genre,
                         style: TextStyle(
                           color: isSelected ? Colors.white : Colors.white70,
-                          fontSize: 12,
+                          fontSize: 13,
                           fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
                         ),
                       ),
@@ -382,6 +405,7 @@ class _SearchScreenState extends State<SearchScreen> {
                                                 return TvFocusable(
                                                   borderRadius: 16,
                                                   scaleFactor: 1.06,
+                                                  borderWidth: 2.0,
                                                   onTap: () {
                                                     _controller.text = item;
                                                     _search(item);

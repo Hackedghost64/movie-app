@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mbx-gateway"
+version = "1.0.0"
+description = "MBX - private streaming gateway: search, stream and download via one clean API"
+readme = "README.md"
+requires-python = ">=3.10"
+
+[project.scripts]
+mbx = "moviebox_wrapper.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["moviebox_wrapper*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

@@ -1,0 +1,23 @@
+server:
+  host: 127.0.0.1
+  port: 8399
+
+mode: links            # links | proxy  (per-request override: ?mode=proxy)
+region: US
+
+cache_ttl:
+  metadata: 3600
+  search: 600
+  stream: 120          # stream URLs are time-limited upstream; keep short
+
+rate_limit_per_minute: 60
+upstream_timeout_seconds: 15
+log_raw_traffic: true   # every signed request+response -> logs/upstream.log (diff-debugging gold)
+
+selfheal:
+  auto_scan_on_start: true
+  auth_fail_threshold: 3     # consecutive signature rejections before PROTOCOL_STALE
+  verify_probe_on_heal: true # test candidate secrets live BEFORE committing them
+  offline: true             # true = never touch network during heal/doctor
+
+media_allow_host_suffixes: [aoneroom.com, aliyuncs.com, akamaized.net, hakunaymatata.com, cloudcdn.net]

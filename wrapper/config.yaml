@@ -1,0 +1,34 @@
+server:
+  host: 0.0.0.0
+  port: 8399
+
+mode: links            # links | proxy  (per-request override: ?mode=proxy)
+region: US
+
+paths:
+  protocol_file: protocol/protocol.yaml
+  watch_dir: watch
+  device_file: data/device.json
+  logs_dir: logs
+  backups_dir: protocol/backups
+  downloads_dir: ../downloads
+
+cache_ttl:
+  metadata: 3600
+  search: 600
+  stream: 120
+
+rate_limit_per_minute: 60
+upstream_timeout_seconds: 15
+log_raw_traffic: true
+
+selfheal:
+  auto_scan_on_start: true
+  auth_fail_threshold: 3
+  verify_probe_on_heal: true
+  offline: false
+
+security:
+  require_api_key: auto
+
+media_allow_host_suffixes: [aoneroom.com, aliyuncs.com, akamaized.net, hakunaymatata.com, cloudcdn.net, cloudfront.net]

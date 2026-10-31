@@ -1,0 +1,60 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+*.egg-info/
+dist/
+build/
+
+# MovieBox wrapper runtime & local state
+wrapper/data/
+wrapper/downloads/
+wrapper/logs/
+wrapper/build/
+wrapper/.pytest_cache/
+wrapper/*.egg-info/
+wrapper/.devrith/
+downloads/
+
+# Large APKs and binaries
+*.apk
+*.aab
+
+# Large reverse engineering scratch/decompilation work
+work/
+
+# Flutter / Dart (nested in app/)
+app/.dart_tool/
+app/.flutter-plugins-dependencies
+app/.flutter-plugins
+app/.packages
+app/.pub-cache/
+app/.pub/
+app/build/
+app/coverage/
+app/doc/api/
+app/android/.gradle/
+app/android/local.properties
+app/android/build/
+app/android/app/build/
+app/ios/Flutter/Generated.xcconfig
+app/ios/Flutter/ephemeral/
+app/ios/Flutter/flutter_export_environment.sh
+app/ios/Runner/GeneratedPluginRegistrant.*
+app/linux/flutter/ephemeral/
+app/macos/Flutter/ephemeral/
+app/windows/flutter/ephemeral/
+
+# IDE & OS
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+.DS_Store
+Thumbs.db
+
+# Tool scratch files
+.devrith/

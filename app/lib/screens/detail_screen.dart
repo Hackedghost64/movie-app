@@ -5,6 +5,8 @@ import '../services/moviebox_api.dart';
 import '../services/download_service.dart';
 import '../services/storage_service.dart';
 import '../services/content_filter_service.dart';
+import '../coordinators/download_coordinator.dart';
+import '../coordinators/playback_coordinator.dart';
 import 'netflix_player_screen.dart';
 
 class DetailScreen extends StatefulWidget {
@@ -99,21 +101,17 @@ class _DetailScreenState extends State<DetailScreen> {
 
       if (streams.isNotEmpty && mounted) {
         final topStream = streams.first;
-        Navigator.push(
+        PlaybackCoordinator.instance.launchPlayer(
           context,
-          MaterialPageRoute(
-            builder: (_) => NetflixPlayerScreen(
-              subjectId: widget.item.id,
-              title: episodeTitle != null ? "${widget.item.title} - $episodeTitle" : widget.item.title,
-              poster: widget.item.poster,
-              season: season,
-              episode: episode,
-              episodeTitle: episodeTitle,
-              stream: topStream,
-              availableStreams: streams,
-              isSeries: _seasons.isNotEmpty,
-            ),
-          ),
+          subjectId: widget.item.id,
+          title: episodeTitle != null ? "${widget.item.title} - $episodeTitle" : widget.item.title,
+          poster: widget.item.poster,
+          season: season,
+          episode: episode,
+          episodeTitle: episodeTitle,
+          stream: topStream,
+          availableStreams: streams,
+          isSeries: _seasons.isNotEmpty,
         );
         return;
       }
@@ -928,31 +926,27 @@ class _StreamSelectorSheetState extends State<_StreamSelectorSheet> {
                       onTap: () {
                         Navigator.pop(context);
                         if (widget.isDownloadMode) {
-                          DownloadService.instance.startDownload(
-                            id: "${widget.subjectId}_${widget.season}_${widget.episode}_${s.resolution}",
+                          DownloadCoordinator.instance.requestDownload(
+                            subjectId: widget.subjectId,
                             title: widget.title,
-                            url: s.url,
-                            cookie: s.cookie,
-                            ext: s.kind == 'dash' ? 'mpd' : (s.kind == 'hls' ? 'm3u8' : 'mp4'),
+                            stream: s,
+                            season: widget.season,
+                            episode: widget.episode,
                           );
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(content: Text("Started downloading: ${widget.title} (${s.resolution})")),
                           );
                         } else {
-                          Navigator.push(
+                          PlaybackCoordinator.instance.launchPlayer(
                             context,
-                            MaterialPageRoute(
-                              builder: (_) => NetflixPlayerScreen(
-                                subjectId: widget.subjectId,
-                                title: widget.title,
-                                poster: widget.poster,
-                                season: widget.season,
-                                episode: widget.episode,
-                                stream: s,
-                                availableStreams: _streams,
-                                isSeries: widget.season > 0,
-                              ),
-                            ),
+                            subjectId: widget.subjectId,
+                            title: widget.title,
+                            poster: widget.poster,
+                            season: widget.season,
+                            episode: widget.episode,
+                            stream: s,
+                            availableStreams: _streams,
+                            isSeries: widget.season > 0,
                           );
                         }
                       },

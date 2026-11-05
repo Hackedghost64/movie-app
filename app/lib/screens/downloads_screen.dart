@@ -1,15 +1,15 @@
 import 'package:flutter/material.dart';
 import '../models/media_models.dart';
-import '../services/download_service.dart';
+import '../coordinators/download_coordinator.dart';
+import '../coordinators/playback_coordinator.dart';
 import '../widgets/tv_focusable.dart';
-import 'netflix_player_screen.dart';
 
 class DownloadsScreen extends StatelessWidget {
   const DownloadsScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final downloadService = DownloadService.instance;
+    final downloadCoordinator = DownloadCoordinator.instance;
     const accentRed = Color(0xFFE50914);
 
     return Scaffold(
@@ -23,9 +23,9 @@ class DownloadsScreen extends StatelessWidget {
         ),
       ),
       body: ListenableBuilder(
-        listenable: downloadService,
+        listenable: downloadCoordinator.service,
         builder: (context, _) {
-          final tasks = downloadService.tasks;
+          final tasks = downloadCoordinator.tasks;
           if (tasks.isEmpty) {
             return const Center(
               child: Column(
@@ -111,19 +111,19 @@ class DownloadsScreen extends StatelessWidget {
                                 IconButton(
                                   icon: const Icon(Icons.delete_outline, color: Colors.white54, size: 22),
                                   tooltip: "Delete Download",
-                                  onPressed: () => downloadService.deleteDownload(task.id),
+                                  onPressed: () => downloadCoordinator.deleteDownload(task.id),
                                 ),
                               ] else if (!task.isCancelled) ...[
                                 IconButton(
                                   icon: const Icon(Icons.close, color: Colors.white54, size: 22),
                                   tooltip: "Cancel Download",
-                                  onPressed: () => downloadService.cancelDownload(task.id),
+                                  onPressed: () => downloadCoordinator.cancelDownload(task.id),
                                 ),
                               ] else ...[
                                 IconButton(
                                   icon: const Icon(Icons.delete_outline, color: Colors.white54, size: 22),
                                   tooltip: "Remove",
-                                  onPressed: () => downloadService.deleteDownload(task.id),
+                                  onPressed: () => downloadCoordinator.deleteDownload(task.id),
                                 ),
                               ],
                             ],
@@ -154,24 +154,6 @@ class DownloadsScreen extends StatelessWidget {
   }
 
   void _playOffline(BuildContext context, DownloadTask task) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => NetflixPlayerScreen(
-          subjectId: task.id,
-          title: task.title,
-          season: 0,
-          episode: 0,
-          stream: StreamOption(
-            url: task.filePath,
-            kind: task.filePath.endsWith('.mpd') ? 'dash' : 'mp4',
-            resolution: 'Offline',
-            bypassedDecoy: true,
-          ),
-          availableStreams: [],
-          isSeries: false,
-        ),
-      ),
-    );
+    PlaybackCoordinator.instance.launchOfflinePlayer(context, task: task);
   }
 }

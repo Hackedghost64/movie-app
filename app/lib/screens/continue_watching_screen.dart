@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import '../models/media_models.dart';
 import '../models/storage_models.dart';
 import '../services/storage_service.dart';
+import '../coordinators/playback_coordinator.dart';
 import '../widgets/tv_focusable.dart';
-import 'netflix_player_screen.dart';
 
 class ContinueWatchingScreen extends StatefulWidget {
   const ContinueWatchingScreen({super.key});
@@ -113,21 +113,18 @@ class _ContinueWatchingScreenState extends State<ContinueWatchingScreen> {
       bypassedDecoy: true,
     );
 
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => NetflixPlayerScreen(
-          subjectId: progress.subjectId,
-          title: progress.title,
-          poster: progress.poster,
-          season: progress.season,
-          episode: progress.episode,
-          episodeTitle: progress.episodeTitle,
-          stream: stream,
-          availableStreams: [stream],
-          isSeries: progress.season > 0,
-          initialPosition: Duration(milliseconds: progress.positionMs),
-        ),
-      ),
+    PlaybackCoordinator.instance.launchPlayer(
+      context,
+      subjectId: progress.subjectId,
+      title: progress.title,
+      poster: progress.poster,
+      season: progress.season,
+      episode: progress.episode,
+      episodeTitle: progress.episodeTitle,
+      stream: stream,
+      availableStreams: [stream],
+      isSeries: progress.season > 0,
+      initialPosition: Duration(milliseconds: progress.positionMs),
     );
   }
 

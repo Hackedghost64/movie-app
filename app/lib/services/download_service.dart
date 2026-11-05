@@ -89,6 +89,8 @@ class DownloadService extends ChangeNotifier {
 
     if (url.contains('.mpd')) {
       await _downloadDashStream(task, sanitizedTitle, dirPath, url, cookie);
+    } else if (url.contains('.m3u8') || ext == 'm3u8') {
+      await _downloadHlsStream(task, sanitizedTitle, dirPath, url, cookie);
     } else {
       await _downloadDirectStream(task, defaultFilePath, url, cookie);
     }
@@ -224,6 +226,157 @@ class DownloadService extends ChangeNotifier {
     }
   }
 
+  Future<void> _downloadHlsStream(
+    DownloadTask task,
+    String sanitizedTitle,
+    String baseDirPath,
+    String m3u8Url,
+    String? cookie,
+  ) async {
+    try {
+      final client = http.Client();
+      final headers = <String, String>{
+        'User-Agent': 'Mozilla/5.0 (Android; Mobile; rv:109.0) Gecko/109.0 Firefox/118.0',
+      };
+      if (cookie != null && cookie.isNotEmpty) {
+        headers['Cookie'] = cookie;
+      }
+
+      // Fetch M3U8 manifest
+      var m3u8Uri = Uri.parse(m3u8Url);
+      var m3u8Resp = await client.get(m3u8Uri, headers: headers);
+      if (m3u8Resp.statusCode < 200 || m3u8Resp.statusCode >= 300) {
+        throw Exception('Failed to fetch HLS playlist: HTTP ${m3u8Resp.statusCode}');
+      }
+
+      var playlistText = m3u8Resp.body;
+
+      // Handle Master Playlist (multi-variant)
+      if (playlistText.contains('#EXT-X-STREAM-INF')) {
+        final lines = playlistText.split('\n');
+        String? variantUrl;
+        for (int i = 0; i < lines.length; i++) {
+          final line = lines[i].trim();
+          if (line.startsWith('#EXT-X-STREAM-INF') && i + 1 < lines.length) {
+            final nextLine = lines[i + 1].trim();
+            if (nextLine.isNotEmpty && !nextLine.startsWith('#')) {
+              variantUrl = nextLine;
+              break;
+            }
+          }
+        }
+        if (variantUrl != null) {
+          m3u8Uri = m3u8Uri.resolve(variantUrl);
+          m3u8Resp = await client.get(m3u8Uri, headers: headers);
+          if (m3u8Resp.statusCode == 200) {
+            playlistText = m3u8Resp.body;
+          }
+        }
+      }
+
+      final folderPath = '$baseDirPath/$sanitizedTitle';
+      final folder = Directory(folderPath);
+      if (!await folder.exists()) {
+        await folder.create(recursive: true);
+      }
+
+      // Parse segments
+      final lines = playlistText.split('\n');
+      final segmentUris = <Uri>[];
+      final rewrittenLines = <String>[];
+      int segIndex = 0;
+
+      for (var rawLine in lines) {
+        final line = rawLine.trim();
+        if (line.isEmpty) continue;
+
+        if (line.startsWith('#')) {
+          if (line.startsWith('#EXT-X-KEY:')) {
+            final uriMatch = RegExp(r'URI="([^"]+)"').firstMatch(line);
+            if (uriMatch != null) {
+              final keyUrl = uriMatch.group(1)!;
+              final keyUri = m3u8Uri.resolve(keyUrl);
+              try {
+                final keyResp = await client.get(keyUri, headers: headers);
+                if (keyResp.statusCode == 200) {
+                  final keyFile = File('$folderPath/enc.key');
+                  await keyFile.writeAsBytes(keyResp.bodyBytes);
+                  rewrittenLines.add(line.replaceFirst(keyUrl, 'enc.key'));
+                  continue;
+                }
+              } catch (_) {}
+            }
+          }
+          rewrittenLines.add(line);
+        } else {
+          segIndex++;
+          final segUri = m3u8Uri.resolve(line);
+          segmentUris.add(segUri);
+          final segName = 'segment_${segIndex.toString().padLeft(5, '0')}.ts';
+          rewrittenLines.add(segName);
+        }
+      }
+
+      if (segmentUris.isEmpty) {
+        throw Exception('No playable segments discovered in HLS playlist');
+      }
+
+      // Save local playlist pointing to downloaded segments
+      final localM3u8File = File('$folderPath/local.m3u8');
+      await localM3u8File.writeAsString(rewrittenLines.join('\n'));
+      task.filePath = localM3u8File.path;
+
+      final totalSegments = segmentUris.length;
+      int totalBytesDownloaded = 0;
+      int lastNotificationMs = 0;
+
+      for (int i = 0; i < totalSegments; i++) {
+        if (task.isCancelled) {
+          client.close();
+          return;
+        }
+
+        final segName = 'segment_${(i + 1).toString().padLeft(5, '0')}.ts';
+        final segFile = File('$folderPath/$segName');
+
+        if (!await segFile.exists() || await segFile.length() == 0) {
+          final segResp = await client.get(segmentUris[i], headers: headers);
+          if (segResp.statusCode == 200) {
+            await segFile.writeAsBytes(segResp.bodyBytes);
+            totalBytesDownloaded += segResp.bodyBytes.length;
+          } else {
+            throw Exception('Segment ${i + 1} download failed: HTTP ${segResp.statusCode}');
+          }
+        } else {
+          totalBytesDownloaded += await segFile.length();
+        }
+
+        task.progress = ((i + 1) / totalSegments).clamp(0.0, 1.0);
+        final mb = (totalBytesDownloaded / 1048576).toStringAsFixed(1);
+        final pct = (task.progress * 100).toStringAsFixed(1);
+        task.status = '$pct% ($mb MB) • Segment ${i + 1}/$totalSegments';
+
+        final now = DateTime.now().millisecondsSinceEpoch;
+        if (now - lastNotificationMs > 250 || i == totalSegments - 1) {
+          lastNotificationMs = now;
+          notifyListeners();
+        }
+      }
+
+      client.close();
+      task.isCompleted = true;
+      task.progress = 1.0;
+      final finalMb = (totalBytesDownloaded / 1048576).toStringAsFixed(1);
+      task.status = 'Completed ($finalMb MB)';
+      notifyListeners();
+    } catch (e) {
+      if (!task.isCancelled) {
+        task.status = 'Failed: $e';
+        notifyListeners();
+      }
+    }
+  }
+
   Future<void> _downloadDirectStream(
     DownloadTask task,
     String filePath,
@@ -273,6 +426,10 @@ class DownloadService extends ChangeNotifier {
 
       await sink.close();
       client.close();
+
+      if (receivedBytes < 50000 && (url.contains('.m3u8') || url.contains('.mpd'))) {
+        throw Exception("Manifest payload received in direct file stream without video chunks.");
+      }
 
       task.isCompleted = true;
       task.progress = 1.0;
